@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 from app.config import config_manager
 from app.prompts import prompt_manager, VIDEO_TYPES
-from app.video_processor import VideoProcessor, seconds_to_timecode
+from app.video_processor import VideoProcessor
 from app.analyzers import (
     GeminiAnalyzer,
     OpenRouterAnalyzer,
@@ -189,8 +189,10 @@ async def get_models(provider: str):
                 "error": str(e),
             }
         elif provider == "openai":
+            # No invented fallback list: an empty select plus a real error
+            # beats a dropdown of model names the server never reported.
             return {
-                "models": OpenAIAnalyzer.DEFAULT_MODELS,
+                "models": [],
                 "from_api": False,
                 "error": str(e),
             }
@@ -225,51 +227,54 @@ async def set_api_key(request: APIKeyRequest):
 
     config_manager.set_runtime_api_key(request.provider, request.api_key)
 
-    # Validate the key
     try:
         if request.provider == "gemini":
             analyzer = GeminiAnalyzer(api_key=request.api_key)
-            is_valid = await analyzer.validate_api_key_async()
         elif request.provider == "openrouter":
             analyzer = OpenRouterAnalyzer(api_key=request.api_key)
-            is_valid = await analyzer.validate_api_key_async()
         else:  # openai
-            api_key = config_manager.get_api_key("openai")
-            base_url = config_manager.get_openai_base_url()
-            # We need a model name to initialize, even if we're just listing models
-            default_model = config_manager.settings.openai_model_name
             analyzer = OpenAIAnalyzer(
-                model_name=default_model, api_key=api_key, base_url=base_url
+                model_name=config_manager.settings.openai_model_name,
+                api_key=request.api_key,
+                base_url=config_manager.get_openai_base_url(),
             )
-            is_valid = await analyzer.validate_api_key_async()
 
-        models = await analyzer.get_available_models()
-        return {"models": models, "from_api": True}
+        try:
+            models = await analyzer.get_available_models()
+        finally:
+            await analyzer.close()
+
+        return {"success": True, "models": models, "from_api": True}
 
     except Exception as e:
-        # Return default models on error
+        # The key did not work — do not leave a broken one behind.
+        config_manager.set_runtime_api_key(request.provider, "")
         if request.provider == "gemini":
             return {
+                "success": False,
                 "models": GeminiAnalyzer.DEFAULT_MODELS,
                 "from_api": False,
                 "error": str(e),
             }
         elif request.provider == "openrouter":
             return {
+                "success": False,
                 "models": OpenRouterAnalyzer.DEFAULT_MODELS,
                 "from_api": False,
                 "error": str(e),
             }
-        elif request.provider == "openai":
-            return {
-                "models": OpenAIAnalyzer.DEFAULT_MODELS,
-                "from_api": False,
-                "error": str(e),
-            }
         else:
-            raise HTTPException(
-                status_code=400, detail=f"Unknown provider: {request.provider}"
-            )
+            return {"success": False, "models": [], "from_api": False, "error": str(e)}
+
+
+@app.post("/api/reset-api-key")
+async def reset_api_key(request: ResetKeyRequest):
+    """Forget the runtime API key for a provider (env values are untouched)."""
+    if request.provider not in ["gemini", "openrouter", "openai"]:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    config_manager.set_runtime_api_key(request.provider, "")
+    return {"success": True, "message": f"{request.provider} API key has been reset"}
 
 
 @app.post("/api/upload")
@@ -503,6 +508,8 @@ async def process_video_job(
     logger.info(
         f"Starting job {job_id} for file {file_path} with provider {provider}, model {model}"
     )
+    analyzer = None
+    processor = None
     try:
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["current_step"] = "Loading prompt template..."
@@ -638,9 +645,6 @@ async def process_video_job(
             f.write("---\n\n")
             f.write(final_analysis)
 
-        # Cleanup temp files
-        processor.cleanup_job(job_id)
-
         # Complete
         jobs[job_id]["progress"] = 100
         jobs[job_id]["status"] = "completed"
@@ -656,6 +660,13 @@ async def process_video_job(
     except Exception as e:
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = f"Unexpected error: {str(e)}"
+    finally:
+        # Analyzer clients and temp chunks are per job — do not leak either,
+        # including on the failure paths.
+        if analyzer is not None:
+            await analyzer.close()
+        if processor is not None:
+            processor.cleanup_job(job_id)
 
 
 # ============== Startup/Shutdown ==============

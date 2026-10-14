@@ -3,7 +3,7 @@ Base analyzer interface and common utilities.
 """
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
-import time
+import asyncio
 import random
 
 
@@ -74,8 +74,11 @@ class BaseAnalyzer(ABC):
 
     async def _async_sleep(self, seconds: float):
         """Async sleep helper."""
-        import asyncio
         await asyncio.sleep(seconds)
+
+    async def close(self):
+        """Release provider resources. Stateless providers need not override."""
+        return None
 
 
 class AnalyzerError(Exception):

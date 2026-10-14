@@ -1,32 +1,54 @@
 """
-OpenAI video analyzer supporting local and cloud APIs.
-Supports OpenAI-compatible local servers (Ollama, LocalAI, etc.).
+OpenAI-compatible video analyzer.
+
+Talks to anything that speaks the OpenAI `/v1` API: Ollama, vLLM,
+llama.cpp, LM Studio. The model list is whatever the server reports —
+nothing is hardcoded here.
 """
 
-import os
-import base64
 import asyncio
-from typing import Dict, List, Optional, Any
-from openai import AsyncOpenAI, OpenAIError
+import base64
+import json
+import logging
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from openai import (
+    APIError,
+    AsyncOpenAI,
+    OpenAIError,
+    RateLimitError as OpenAIRateLimitError,
+)
+from openai import AuthenticationError as OpenAIAuthError
 
 from app.analyzers.base import (
-    BaseAnalyzer,
-    AnalyzerError,
-    RateLimitError,
     AuthenticationError,
+    AnalyzerError,
+    BaseAnalyzer,
+    RateLimitError,
     VideoProcessingError,
 )
 from app.config import config_manager
+from app.prompts import prompt_manager
+
+logger = logging.getLogger(__name__)
+
+# Same output budget the other OpenAI-compatible backend uses. The
+# lossless prompt mode does not fit in 4k.
+MAX_TOKENS = 16000
+
+# Sampling points for the vision path, as fractions of chunk duration.
+FRAME_FRACTIONS = (0.25, 0.5, 0.75)
+
+# ffmpeg -q:v scale for JPEG quality (2 = high).
+FRAME_QUALITY = "2"
 
 
 class OpenAIAnalyzer(BaseAnalyzer):
-    """Video analyzer using OpenAI API (supports local servers)."""
-
-    # Default base URL for local OpenAI-compatible servers
-    DEFAULT_BASE_URL = "http://localhost:8080/v1"  # llama.cpp server default
-
-    # Default models for local servers
-    DEFAULT_MODELS = []
+    """Video analyzer for any OpenAI-compatible `/v1` server."""
 
     def __init__(
         self,
@@ -35,329 +57,229 @@ class OpenAIAnalyzer(BaseAnalyzer):
         base_url: Optional[str] = None,
     ):
         super().__init__(model_name, api_key)
-        self.base_url = base_url or self.DEFAULT_BASE_URL
-        self._client = None
+        self.base_url = base_url or config_manager.get_openai_base_url()
+        self._client: Optional[AsyncOpenAI] = None
+
+    # ---------- credentials ----------
 
     def _get_api_key(self) -> str:
-        """Get OpenAI API key."""
+        """Get the API key. Local servers do not need one."""
         key = self.api_key or config_manager.get_api_key("openai")
         if not key and not self._is_local_server():
             raise AuthenticationError("OpenAI API key not configured")
         return key or "not-needed-for-local"
 
     def _is_local_server(self) -> bool:
-        """Check if using local server (no API key required)."""
+        """Whether the configured endpoint looks like a local server."""
         return "localhost" in self.base_url or "127.0.0.1" in self.base_url
 
     def _get_client(self) -> AsyncOpenAI:
-        """Get or create OpenAI client."""
+        """Get or create the client."""
         if self._client is None:
             self._client = AsyncOpenAI(
                 api_key=self._get_api_key(),
                 base_url=self.base_url,
-                max_retries=0,  # We handle retries in BaseAnalyzer
+                max_retries=0,  # retries live in BaseAnalyzer
             )
         return self._client
 
-    def _encode_video_to_base64(self, video_path: str) -> str:
-        """Encode video file to base64 string."""
+    # ---------- frames ----------
+
+    @staticmethod
+    def _probe_duration(video_path: str) -> float:
+        """Duration in seconds via ffprobe."""
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            video_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise VideoProcessingError(
+                f"ffprobe failed for {video_path}: {result.stderr.strip()}"
+            )
+        try:
+            return float(json.loads(result.stdout)["format"]["duration"])
+        except (KeyError, ValueError, TypeError) as e:
+            raise VideoProcessingError(
+                f"ffprobe returned no usable duration for {video_path}: {e}"
+            ) from e
+
+    @staticmethod
+    def _grab_frame(video_path: str, timestamp: float, frame_path: str) -> bool:
+        """Extract one frame at `timestamp` seconds."""
+        cmd = [
+            "ffmpeg",
+            "-ss", f"{timestamp:.3f}",
+            "-i", video_path,
+            "-frames:v", "1",
+            "-q:v", FRAME_QUALITY,
+            frame_path,
+            "-y",
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        return result.returncode == 0 and os.path.exists(frame_path)
+
+    def _extract_video_frames(self, video_path: str) -> List[str]:
+        """Sample frames from a video, base64-encoded as JPEG.
+
+        Blocking: ffmpeg runs in a subprocess, so callers must go through
+        `asyncio.to_thread`.
+        """
         if not os.path.exists(video_path):
             raise VideoProcessingError(f"Video file not found: {video_path}")
 
-        file_size = os.path.getsize(video_path)
-        max_size = (
-            100 * 1024 * 1024
-        )  # 100MB for local servers (more generous than OpenRouter)
+        duration = self._probe_duration(video_path)
+        frames: List[str] = []
 
-        if file_size > max_size:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index, fraction in enumerate(FRAME_FRACTIONS):
+                frame_path = os.path.join(temp_dir, f"frame_{index:03d}.jpg")
+                timestamp = duration * fraction
+                if self._grab_frame(video_path, timestamp, frame_path):
+                    encoded = base64.b64encode(
+                        Path(frame_path).read_bytes()
+                    ).decode("ascii")
+                    frames.append(encoded)
+                    logger.info(
+                        "frame %d/%d at %.1fs -> %d base64 chars",
+                        index + 1, len(FRAME_FRACTIONS), timestamp, len(encoded),
+                    )
+                else:
+                    logger.warning(
+                        "failed to extract frame at %.1fs", timestamp
+                    )
+
+        if not frames:
             raise VideoProcessingError(
-                f"Video file too large ({file_size / 1024 / 1024:.1f}MB). "
-                f"Maximum size is {max_size / 1024 / 1024:.0f}MB."
+                f"ffmpeg produced no frames for {video_path}; "
+                "the file may be corrupt or use an unsupported codec"
             )
-
-        with open(video_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-
-    def _get_mime_type(self, video_path: str) -> str:
-        """Get MIME type based on file extension."""
-        ext = os.path.splitext(video_path)[1].lower()
-        mime_types = {
-            ".mp4": "video/mp4",
-            ".avi": "video/x-msvideo",
-            ".mov": "video/quicktime",
-            ".mkv": "video/x-matroska",
-            ".webm": "video/webm",
-            ".m4v": "video/x-m4v",
-        }
-        return mime_types.get(ext, "video/mp4")
-
-    def _extract_video_frames(self, video_path: str) -> List[str]:
-        """Extract frames from video for OpenAI vision API."""
-        import tempfile
-        import subprocess
-
-        frames = []
-        try:
-            # Create temporary directory for frames
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Extract 3-5 frames evenly distributed throughout the video
-                # Use ffmpeg to extract frames at specific timestamps
-                frame_pattern = os.path.join(temp_dir, "frame_%03d.jpg")
-
-                # Get video duration first
-                print(f"[OpenAI] Getting video duration for {video_path}")
-                duration_cmd = [
-                    "ffprobe",
-                    "-v",
-                    "quiet",
-                    "-print_format",
-                    "json",
-                    "-show_format",
-                    video_path,
-                ]
-                result = subprocess.run(duration_cmd, capture_output=True, text=True)
-
-                if result.returncode != 0:
-                    print(f"[OpenAI] Failed to get video duration: {result.stderr}")
-                    raise AnalyzerError(
-                        f"Failed to get video duration: {result.stderr}"
-                    )
-
-                import json
-
-                info = json.loads(result.stdout)
-                duration = float(info["format"]["duration"])
-                print(f"[OpenAI] Video duration: {duration} seconds")
-
-                # Extract frames at 25%, 50%, 75% of video duration
-                timestamps = [duration * 0.25, duration * 0.5, duration * 0.75]
-                print(f"[OpenAI] Will extract frames at timestamps: {timestamps}")
-
-                for i, timestamp in enumerate(timestamps):
-                    frame_file = os.path.join(temp_dir, f"frame_{i:03d}.jpg")
-                    print(
-                        f"[OpenAI] Extracting frame {i + 1} at {timestamp}s to {frame_file}"
-                    )
-                    extract_cmd = [
-                        "ffmpeg",
-                        "-ss",
-                        str(timestamp),
-                        "-i",
-                        video_path,
-                        "-frames:v",
-                        "1",
-                        "-q:v",
-                        "2",
-                        frame_file,
-                        "-y",
-                    ]
-
-                    result = subprocess.run(extract_cmd, capture_output=True)
-                    if result.returncode == 0 and os.path.exists(frame_file):
-                        print(f"[OpenAI] Successfully extracted frame {i + 1}")
-                        # Convert to base64
-                        with open(frame_file, "rb") as f:
-                            frame_data = base64.b64encode(f.read()).decode("utf-8")
-                            frames.append(frame_data)
-                            print(
-                                f"[OpenAI] Frame {i + 1} encoded to base64 ({len(frame_data)} chars)"
-                            )
-                    else:
-                        print(
-                            f"[OpenAI] Failed to extract frame {i + 1}: {result.stderr.decode()}"
-                        )
-
-                # If we couldn't extract frames, fall back to single frame at 50%
-                if not frames:
-                    frame_file = os.path.join(temp_dir, "frame_000.jpg")
-                    extract_cmd = [
-                        "ffmpeg",
-                        "-ss",
-                        str(duration * 0.5),
-                        "-i",
-                        video_path,
-                        "-frames:v",
-                        "1",
-                        "-q:v",
-                        "2",
-                        frame_file,
-                        "-y",
-                    ]
-
-                    result = subprocess.run(extract_cmd, capture_output=True)
-                    if result.returncode == 0 and os.path.exists(frame_file):
-                        with open(frame_file, "rb") as f:
-                            frame_data = base64.b64encode(f.read()).decode("utf-8")
-                            frames.append(frame_data)
-
-        except Exception as e:
-            # If frame extraction fails, try to send video as single image (might not work)
-            print(
-                f"Warning: Frame extraction failed: {e}, falling back to video encoding"
-            )
-            try:
-                video_base64 = self._encode_video_to_base64(video_path)
-                frames.append(video_base64)  # This might not work with OpenAI
-            except:
-                pass
-
         return frames
+
+    # ---------- analysis ----------
 
     async def analyze_video(
         self, video_path: str, prompt: str, chunk_info: Optional[Dict] = None
     ) -> str:
-        """Analyze video using OpenAI API."""
-        print(f"[OpenAI] Analyzing video: {video_path}")
-        print(f"[OpenAI] Using base URL: {self.base_url}")
-        print(f"[OpenAI] Using model: {self.model_name}")
+        """Analyze a video chunk and return the model's text."""
+        logger.info("analyzing %s via %s (%s)", video_path, self.base_url, self.model_name)
+        client = self._get_client()
+
+        # This endpoint cannot take a video file, so it gets sampled frames.
+        frame_images = await asyncio.to_thread(self._extract_video_frames, video_path)
+
+        content: List[Dict[str, Any]] = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{frame}",
+                    "detail": "high",
+                },
+            }
+            for frame in frame_images
+        ]
+        content.append(
+            {"type": "text", "text": prompt_manager.format_chunk_prompt(prompt, chunk_info)}
+        )
+
         try:
-            client = self._get_client()
-
-            # For OpenAI, extract frames from video since vision API doesn't support video directly
-            print(f"[OpenAI] Extracting frames from video...")
-            frame_images = self._extract_video_frames(video_path)
-            print(f"[OpenAI] Extracted {len(frame_images)} frames")
-
-            # Format prompt with chunk info if provided
-            formatted_prompt = prompt
-            if chunk_info:
-                try:
-                    formatted_prompt = prompt.format(
-                        chunk_number=chunk_info.get("chunk_number", 1),
-                        total_chunks=chunk_info.get("total_chunks", 1),
-                        start_time_minutes=round(
-                            chunk_info.get("start_time", 0) / 60, 1
-                        ),
-                        end_time_minutes=round(chunk_info.get("end_time", 0) / 60, 1),
-                        duration_minutes=round(chunk_info.get("duration", 0) / 60, 1),
-                    )
-                except KeyError:
-                    pass
-
-            # Build content with extracted frames
-            content = []
-            for i, frame_base64 in enumerate(frame_images):
-                print(f"[OpenAI] Adding frame {i + 1} to request")
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{frame_base64}",
-                            "detail": "high",
-                        },
-                    }
-                )
-            content.append({"type": "text", "text": formatted_prompt})
-
-            print(
-                f"[OpenAI] Sending request with {len(frame_images)} frames and prompt length {len(formatted_prompt)}"
-            )
             response = await client.chat.completions.create(
                 model=self.model_name,
                 messages=[{"role": "user", "content": content}],
-                max_tokens=4000,  # Generous token limit for video analysis
-                temperature=0.1,  # Low temperature for consistent analysis
+                max_tokens=MAX_TOKENS,
+                temperature=0.1,
             )
-
-            print(f"[OpenAI] Received response successfully")
-            return response.choices[0].message.content
-
+        except OpenAIAuthError as e:
+            raise AuthenticationError(f"Authentication failed: {e}") from e
+        except OpenAIRateLimitError as e:
+            raise RateLimitError(f"Rate limit exceeded: {e}") from e
+        except APIError as e:
+            raise AnalyzerError(f"OpenAI API error: {e}") from e
         except OpenAIError as e:
-            error_str = str(e).lower()
-            if "rate" in error_str or "429" in error_str:
-                raise RateLimitError(f"Rate limit exceeded: {e}")
-            elif "auth" in error_str or "401" in error_str or "403" in error_str:
-                raise AuthenticationError(f"Authentication failed: {e}")
-            else:
-                raise AnalyzerError(f"OpenAI API error: {e}")
-        except Exception as e:
-            raise AnalyzerError(f"OpenAI analysis failed: {e}")
+            raise AnalyzerError(f"OpenAI error: {e}") from e
+
+        return response.choices[0].message.content or ""
 
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """Get list of available models from OpenAI API."""
+        """List the models the configured server reports."""
         try:
             client = self._get_client()
-
             models_response = await client.models.list()
-            models = []
+        except OpenAIAuthError as e:
+            raise AuthenticationError(f"Authentication failed: {e}") from e
+        except OpenAIError as e:
+            raise AnalyzerError(f"Failed to fetch models: {e}") from e
 
-            for model in models_response.data:
-                model_id = model.id
-                model_info = {
-                    "id": model_id,
-                    "name": model_id,
-                    "description": getattr(model, "description", ""),
-                    "supports_video": True,  # Assume vision models for video analysis
-                }
-                models.append(model_info)
-
-            return models if models else self.DEFAULT_MODELS
-
-        except Exception as e:
-            # Re-raise exception to let main.py handle it and report error
-            raise AnalyzerError(f"Failed to fetch models: {e}")
+        models = [
+            {
+                "id": model.id,
+                "name": model.id,
+                "description": getattr(model, "description", "") or "",
+                "supports_video": True,
+            }
+            for model in models_response.data
+        ]
+        if not models:
+            raise AnalyzerError(
+                f"{self.base_url} reports no models; is the server running "
+                "and is a model pulled?"
+            )
+        return models
 
     def validate_api_key(self) -> bool:
-        """Validate OpenAI API key synchronously (deprecated, use async version)."""
+        """Format check only (deprecated, use validate_api_key_async)."""
         try:
-            api_key = self._get_api_key()
             if self._is_local_server():
-                return True  # Local servers don't need API keys
+                return True
+            api_key = self._get_api_key()
             return api_key.startswith("sk-") and len(api_key) > 20
-        except Exception:
+        except AnalyzerError:
             return False
 
     async def validate_api_key_async(self) -> bool:
-        """Validate OpenAI API key by making a test request."""
+        """Validate by listing models on the configured server."""
         try:
-            client = self._get_client()
-
-            await client.models.list()
+            await self._get_client().models.list()
             return True
-
-        except OpenAIError as e:
-            if "auth" in str(e).lower() or "401" in str(e) or "403" in str(e):
-                return False
-            # For other errors (rate limits, etc.), consider key valid
-            return True
-        except Exception:
-            # If we can't connect, but it's a local server, consider valid
-            if self._is_local_server():
-                return True
+        except AuthenticationError:
+            return False
+        except OpenAIError:
+            # Unreachable server is not a key problem, but it is a
+            # configuration problem — report it as invalid.
             return False
 
     async def combine_analyses(self, analyses: List[str], combine_prompt: str) -> str:
-        """Combine multiple chunk analyses into one."""
+        """Combine chunk analyses into one document."""
+        combined_text = "\n\n---\n\n".join(
+            f"=== Chunk {i + 1} Analysis ===\n{analysis}"
+            for i, analysis in enumerate(analyses)
+        )
+
         try:
-            client = self._get_client()
-
-            combined_text = "\n\n---\n\n".join(
-                [
-                    f"=== Chunk {i + 1} Analysis ===\n{analysis}"
-                    for i, analysis in enumerate(analyses)
-                ]
-            )
-
-            full_prompt = f"{combine_prompt}\n\n{combined_text}"
-
-            response = await client.chat.completions.create(
+            response = await self._get_client().chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": full_prompt}],
-                max_tokens=4000,
+                messages=[
+                    {"role": "user", "content": f"{combine_prompt}\n\n{combined_text}"}
+                ],
+                max_tokens=MAX_TOKENS,
                 temperature=0.1,
             )
-
-            return response.choices[0].message.content
-
+        except OpenAIAuthError as e:
+            raise AuthenticationError(f"Authentication failed: {e}") from e
+        except OpenAIRateLimitError as e:
+            raise RateLimitError(f"Rate limit exceeded: {e}") from e
+        except APIError as e:
+            raise AnalyzerError(f"Failed to combine analyses: {e}") from e
         except OpenAIError as e:
-            if "rate" in str(e).lower():
-                raise RateLimitError(f"Rate limit exceeded: {e}")
-            raise AnalyzerError(f"Failed to combine analyses: {e}")
-        except Exception as e:
-            raise AnalyzerError(f"Failed to combine analyses: {e}")
+            raise AnalyzerError(f"Failed to combine analyses: {e}") from e
+
+        return response.choices[0].message.content or ""
 
     async def close(self):
-        """Close client connection."""
-        if self._client:
+        """Close the client connection."""
+        if self._client is not None:
             await self._client.close()
             self._client = None
