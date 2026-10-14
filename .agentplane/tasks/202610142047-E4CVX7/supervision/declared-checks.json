@@ -1,0 +1,25 @@
+{
+  "checks": [
+    {
+      "check_ids": [],
+      "command": "git diff --exit-code --cached .agentplane",
+      "duration_ms": 335,
+      "exit_code": 1,
+      "runtime": {
+        "environment_digest": "sha256:d081bfe5e4e3a010bb9be03063a9219d680e36b1e326e1db7c7ada7213f95595",
+        "executable_digest": "sha256:220744acca774eb25e601ca2371eb18a76986d3b0d57c105f5685962b37d8254",
+        "kind": "local_runtime_resolution",
+        "status": "resolved",
+        "toolchain_digest": "sha256:7dbda9c211358eabdb21755fb9f50c40fe6e053a3dd92325083384176e0040b9"
+      },
+      "script": null,
+      "stderr_tail": "",
+      "stdout_tail": "uting.mjs\"\n+              - \".agentplane/.upgrade/baseline/policy/dod.code.md\"\n+              - \".agentplane/.upgrade/baseline/policy/dod.core.md\"\n+              - \".agentplane/.upgrade/baseline/policy/dod.docs.md\"\n+              - \".agentplane/.upgrade/baseline/policy/examples/migration-note.md\"\n+              - \".agentplane/.upgrade/baseline/policy/examples/pr-note.md\"\n+              - \".agentplane/.upgrade/baseline/policy/examples/unit-test-pattern.md\"\n+              - \".agentplane/.upgrade/baseline/policy/governance.md\"\n+              - \".agentplane/.upgrade/baseline/policy/incidents.md\"\n+              - \".agentplane/.upgrade/baseline/policy/security.must.md\"\n+              - \".agentplane/.upgrade/baseline/policy/workflow.branch_pr.md\"\n+              - \".agentplane/.upgrade/baseline/policy/workflow.direct.md\"\n+              - \".agentplane/.upgrade/baseline/policy/workflow.md\"\n+              - \".agentplane/.upgrade/baseline/policy/workflow.release.md\"\n+              - \".agentplane/.upgrade/baseline/policy/workflow.upgrade.md\"\n+              - \".agentplane/cache/tasks-index.v2.json\"\n+              - \".gitignore\"\n+            evidence_digest: \"sha256:2f8bf3b44aa01b8a8a21b5eb9ab5da93efb0ab6e597048afd64803b37778c9ff\"\n+            kind: \"authority_delta\"\n+            previous_fingerprint: \"sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088\"\n+            repository_evidence_digest: \"sha256:d06d2ad493262b7b2440c9c6b16a34b7c6a2decbe201cdf2caa1f08f2083f3d7\"\n+            request_digest: \"sha256:c0084e45ac3453730e67001089e6e3f9cacae878093d838eca5fe98eeb4a7054\"\n+            request_task_revision: 6\n       controller_transfer: null\n       current_plan:\n         approval_actor_id: \"USER\"\n@@ -319,8 +405,17 @@ extensions:\n           event_digests:\n             - \"sha256:997704437899dc3464110395e2f289d0d95ba6724c9d11816310a0ec6e12dfec\"\n           mutation_id: \"sha256:4a92caf45ec3ddc167bb34e2465c932d12c7f959731ad63168eff8d0960c92fa\"\n+        sha256:e2d7f03300ce9bb88b309cb902d24115e1e2d40f2b4f01f7c9d0fdc3337b1016:\n+          after_revision: 7\n+          aggregate_digest: \"sha256:22e45bd093f32a628812614149a021eee005b35601dfaa56db8529675bd1e818\"\n+          before_revision: 6\n+          command_digest: \"sha256:48180262262b49deecd4841d1e869febeb4aaab39d85fee2cc515e6ee49e2962\"\n+          effect_ids: []\n+          event_digests:\n+            - \"sha256:06c03e18c97d60187a63e66469602dbe97e282ebd4d5de6d48eae8e33f54df3b\"\n+          mutation_id: \"sha256:e2d7f03300ce9bb88b309cb902d24115e1e2d40f2b4f01f7c9d0fdc3337b1016\"\n       plan_history: []\n-      revision: 6\n+      revision: 7\n       schema_version: 1\n       state: \"ACTIVE\"\n       work_items:\n@@ -349,7 +444,7 @@ extensions:\n           revision: 3\n           state: \"EXECUTING\"\n           validation: null\n-    digest: \"sha256:694fd2c0ccda542d193697c41e64a49db785b0801347a3245c5d837166fa09df\"\n+    digest: \"sha256:7a3557a2ff3e646a6110de4563aa30112da22c25baf611c2c08cd2fe623cf5aa\"\n     documents:\n       contracts:\n         sha256:31f04f140b7f389273d7c22204870b2f70545599fde0f5f1b3c5673c5b562232:\n@@ -419,6 +514,15 @@ extensions:\n         payload_digest: \"sha256:132bb5e03b9f4837e802aa9da83aa6998677794bad2eb82007248a052e674692\"\n         task_id: \"202610142039-CTR1MJ\"\n         task_revision: 6\n+      -\n+        command_digest: \"sha256:48180262262b49deecd4841d1e869febeb4aaab39d85fee2cc515e6ee49e2962\"\n+        id: \"sha256:e2d7f03300ce9bb88b309cb902d24115e1e2d40f2b4f01f7c9d0fdc3337b1016:authority_continued\"\n+        kind: \"authority_continued\"\n+        mutation_id: \"sha256:e2d7f03300ce9bb88b309cb902d24115e1e2d40f2b4f01f7c9d0fdc3337b1016\"\n+        occurred_at: \"2026-10-14T21:10:53.407Z\"\n+        payload_digest: \"sha256:b8553d86fbaf9067de360027b8e38ebe9deaca7eec66c8bb86baaf8e16562979\"\n+        task_id: \"202610142039-CTR1MJ\"\n+        task_revision: 7\n     kind: \"canonical_task\"\n     repository_identity: \"sha256:389babdfb41a61b21aca5f26ed8a7b21b0ba9490e63daac31d781fd6b35cdc10\"\n     schema_version: 1\n"
+    }
+  ],
+  "kind": "direct_task_declared_checks",
+  "reason": "Declared check failed: git diff --exit-code --cached .agentplane",
+  "schema_version": 1,
+  "status": "failed",
+  "task_id": "202610142047-E4CVX7"
+}
