@@ -4,7 +4,6 @@ Loads and manages XML prompt templates for different video types.
 """
 import os
 from typing import Dict, List, Optional
-from pathlib import Path
 
 from app.config import config_manager
 
@@ -15,6 +14,16 @@ VIDEO_TYPES = {
         "name": "General Analysis",
         "description": "Universal video analysis for any content type",
         "prompt_file": "chunk_analysis_prompt.xml"
+    },
+    "general_detailed": {
+        "name": "General Analysis (Detailed)",
+        "description": "Deep analysis: structure + visuals + speech (Max detail)",
+        "prompt_file": "chunk_analysis_general_detailed.xml"
+    },
+    "knowledge_backup": {
+        "name": "Lossless Knowledge Extraction",
+        "description": "Zero-Knowledge Loss: Exhaustive log, verbatim quotes, logic synthesis",
+        "prompt_file": "chunk_analysis_knowledge_backup.xml"
     },
     "lecture": {
         "name": "Lecture / Educational",
@@ -215,23 +224,28 @@ Combine the following analyses into one comprehensive document:"""
         self._cache[cache_key] = prompt
         return prompt
 
-    def format_chunk_prompt(
-        self,
-        prompt: str,
-        chunk_number: int,
-        total_chunks: int,
-        start_time_minutes: float,
-        end_time_minutes: float,
-        duration_minutes: float
-    ) -> str:
-        """Format prompt template with chunk information."""
-        return prompt.format(
-            chunk_number=chunk_number,
-            total_chunks=total_chunks,
-            start_time_minutes=round(start_time_minutes, 1),
-            end_time_minutes=round(end_time_minutes, 1),
-            duration_minutes=round(duration_minutes, 1)
-        )
+    @staticmethod
+    def format_chunk_prompt(prompt: str, chunk_info: Optional[Dict]) -> str:
+        """Substitute the chunk placeholders a prompt declares.
+
+        Explicit replacement, not str.format: keyframes and clips specs carry
+        literal JSON braces, and str.format aborts the whole substitution on
+        the first unknown field — which silently dropped the chunk context
+        from every keyframes/clips run.
+        """
+        if not chunk_info:
+            return prompt
+
+        values = {
+            "chunk_number": chunk_info.get("chunk_number", 1),
+            "total_chunks": chunk_info.get("total_chunks", 1),
+            "start_time_minutes": round(chunk_info.get("start_time", 0) / 60, 1),
+            "end_time_minutes": round(chunk_info.get("end_time", 0) / 60, 1),
+            "duration_minutes": round(chunk_info.get("duration", 0) / 60, 1),
+        }
+        for name, value in values.items():
+            prompt = prompt.replace("{" + name + "}", str(value))
+        return prompt
 
     def clear_cache(self):
         """Clear prompt cache."""

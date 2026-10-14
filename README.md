@@ -1,13 +1,13 @@
 # Video Analyzer Web
 
-AI-powered video analysis with Google Gemini and OpenRouter.
+Video analysis against a **local OpenAI-compatible server** — LiteLLM, vLLM, llama.cpp, Ollama, LM Studio.
 
 The app lets you upload a video, run chunked multimodal analysis, optionally extract key frames, optionally cut reusable video clips, and generate model-specific XML prompt templates from a short natural-language description.
 
 ## Features
 
-- Dual provider support: Google Gemini and OpenRouter.
-- Dynamic model list per provider.
+- One endpoint, any OpenAI-compatible `/v1` server: LiteLLM, vLLM, llama.cpp, Ollama.
+- Model list discovered at runtime from the endpoint — nothing is hardcoded.
 - Runtime API key setup in UI (no restart required).
 - 9 built-in analysis prompt types from XML templates.
 - Prompt Generation for:
@@ -129,7 +129,6 @@ Request:
 
 ```json
 {
-  "provider": "gemini",
   "api_key": "..."
 }
 ```
@@ -141,7 +140,6 @@ Request:
 
 ```json
 {
-  "provider": "gemini"
 }
 ```
 
@@ -167,8 +165,7 @@ Request:
 
 ```json
 {
-  "provider": "gemini",
-  "model": "gemini-2.5-flash",
+  "model": "qwen2.5-vl-7b",
   "target": "analysis",
   "description": "...",
   "video_type": "marketing"
@@ -191,7 +188,7 @@ Notes:
 - If model output is unusable, server returns a deterministic fallback template.
 
 ### `GET /api/models/{provider}`
-Returns video-capable models for `gemini` or `openrouter`.
+Returns the models the configured endpoint reports. Against a LiteLLM proxy each entry also carries `supports_vision` and `context_length`.
 
 ### `POST /api/upload`
 Uploads video file (`multipart/form-data`, field `file`).
@@ -250,11 +247,9 @@ Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANALYZER_TYPE` | `gemini` | Default provider |
-| `GEMINI_API_KEY` | empty | Gemini API key |
-| `GEMINI_MODEL_NAME` | `gemini-2.5-flash` | Default Gemini model |
-| `OPENROUTER_API_KEY` | empty | OpenRouter API key |
-| `OPENROUTER_MODEL_NAME` | `google/gemini-2.0-flash-exp:free` | Default OpenRouter model |
+| `OPENAI_BASE_URL` | `http://host.docker.internal:4000/v1` | The endpoint. LiteLLM `:4000`, vLLM `:8000`, llama.cpp `:8080`, Ollama `:11434` |
+| `OPENAI_API_KEY` | empty | Usually empty for local servers |
+| `OPENAI_MODEL_NAME` | empty | Preselect this model if the endpoint has it |
 | `CHUNK_DURATION_MINUTES` | `10` | Max chunk duration |
 | `CHUNK_SPLIT_MODE` | `fixed` | `fixed` or `silence_aware` |
 | `SILENCE_WINDOW_SECONDS` | `120` | Search window around target split point (seconds) |
@@ -291,8 +286,7 @@ video_analyzer/
 │   ├── video_processor.py     # Chunking, keyframe extraction, clip cutting (FFmpeg)
 │   └── analyzers/
 │       ├── base.py
-│       ├── gemini.py
-│       └── openrouter.py
+│       └── openai.py
 ├── templates/
 │   └── index.html             # UI markup
 ├── static/
@@ -307,11 +301,21 @@ video_analyzer/
 └── requirements.txt
 ```
 
-## API Key Links
+## Supported endpoints
 
-- Gemini: https://aistudio.google.com/apikey
-- OpenRouter: https://openrouter.ai/keys
+All of these speak the same OpenAI `/v1` protocol; set `OPENAI_BASE_URL` and the app adapts:
+
+| Server | URL | Model discovery |
+|---|---|---|
+| LiteLLM proxy | `:4000/v1` | `/model/info` — per-model `supports_vision`, `max_input_tokens` |
+| vLLM | `:8000/v1` | `/v1/models` |
+| llama.cpp server | `:8080/v1` | `/v1/models` |
+| Ollama | `:11434/v1` | `/v1/models` |
+| LM Studio | `:1234/v1` | `/v1/models` |
+
+LiteLLM is worth the extra hop when several models are running: it is the only one that reports
+which models accept images, so text-only models can be left out of the dropdown.
 
 ## License
 
-MIT
+MIT for upstream code. Our modifications are Apache-2.0 — see `NOTICE`.

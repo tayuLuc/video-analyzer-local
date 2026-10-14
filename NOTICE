@@ -1,0 +1,4 @@
+video-analyzer-local
+Portions Copyright (c) 2026 kdoronin (upstream video_analyzer).
+Our modifications (local-LLM provider, knowledge_backup/detailed modes, vLLM-VL bench) are Apache-2.0 by TayuLuc.
+Upstream repo carried no LICENSE file at fork time (14.10.2026).

@@ -4,7 +4,6 @@ FastAPI main application for Video Analyzer Web.
 import os
 import uuid
 import json
-import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -15,23 +14,38 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTa
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
 
 from app.config import config_manager
 from app.prompts import prompt_manager, VIDEO_TYPES
 from app.prompt_generation import prompt_generation_service, PromptGenerationError
 from app.structured_outputs import structured_output_parser
-from app.video_processor import VideoProcessor, seconds_to_timecode
-from app.analyzers import GeminiAnalyzer, OpenRouterAnalyzer, AnalyzerError, AuthenticationError
+from app.video_processor import VideoProcessor
+from app.analyzers import OpenAIAnalyzer, AnalyzerError, AuthenticationError
 
 logger = logging.getLogger(__name__)
+
+
+# ============== Endpoint construction ==============
+
+def build_analyzer(model_name: Optional[str] = None) -> OpenAIAnalyzer:
+    """The single analyzer: whatever OpenAI-compatible /v1 server is configured.
+
+    LiteLLM proxy, vLLM, llama.cpp, Ollama, LM Studio — they all speak the
+    same protocol, so a new backend is a config change, not a new class.
+    """
+    return OpenAIAnalyzer(
+        model_name=model_name or config_manager.settings.openai_model_name,
+        api_key=config_manager.get_api_key(),
+        base_url=config_manager.settings.openai_base_url,
+    )
 
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Video Analyzer",
-    description="AI-powered video analysis with Gemini and OpenRouter",
+    description="AI-powered video analysis against a local OpenAI-compatible server",
     version="1.0.0"
 )
 
@@ -58,17 +72,11 @@ for dir_name in ["uploads", "outputs", "temporary"]:
 # ============== Models ==============
 
 class APIKeyRequest(BaseModel):
-    provider: str
     api_key: str
-
-
-class ResetKeyRequest(BaseModel):
-    provider: str
 
 
 class AnalysisRequest(BaseModel):
     video_type: str
-    provider: str
     model: str
     custom_prompt: Optional[str] = None
     with_keyframes: bool = False
@@ -86,7 +94,6 @@ class ExtractKeyframesRequest(BaseModel):
 
 
 class PromptGenerationRequest(BaseModel):
-    provider: str
     model: str
     target: str  # "analysis", "keyframes", or "clips"
     description: str
@@ -159,11 +166,9 @@ async def get_config():
     """Get current configuration status."""
     settings = config_manager.settings
     return {
-        "gemini_configured": config_manager.has_valid_api_key("gemini"),
-        "openrouter_configured": config_manager.has_valid_api_key("openrouter"),
-        "default_provider": settings.analyzer_type,
-        "default_gemini_model": settings.gemini_model_name,
-        "default_openrouter_model": settings.openrouter_model_name,
+        "base_url": settings.openai_base_url,
+        "configured": config_manager.has_valid_api_key(),
+        "default_model": settings.openai_model_name,
         "max_upload_size_mb": settings.max_upload_size_mb,
         "chunk_duration_minutes": settings.chunk_duration_minutes,
         "chunk_split_mode": settings.chunk_split_mode,
@@ -175,54 +180,27 @@ async def get_config():
 
 @app.post("/api/set-api-key")
 async def set_api_key(request: APIKeyRequest):
-    """Set API key for a provider at runtime."""
-    if request.provider not in ["gemini", "openrouter"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
+    """Set the endpoint's API key at runtime. Local servers usually need none."""
+    config_manager.set_runtime_api_key(request.api_key)
+    analyzer = build_analyzer()
+    analyzer.api_key = request.api_key
 
-    config_manager.set_runtime_api_key(request.provider, request.api_key)
-
-    # Validate the key
     try:
-        if request.provider == "gemini":
-            analyzer = GeminiAnalyzer(api_key=request.api_key)
-            is_valid = await analyzer.validate_api_key_async()
-        else:
-            analyzer = OpenRouterAnalyzer(api_key=request.api_key)
-            is_valid = await analyzer.validate_api_key_async()
-
-        if not is_valid:
-            # Clear the invalid key
-            config_manager.set_runtime_api_key(request.provider, "")
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": "API key validation failed"}
-            )
-
-        return {"success": True, "message": f"{request.provider} API key configured"}
-
+        models = await analyzer.get_available_models()
+        return {"success": True, "models": models, "from_api": True}
     except Exception as e:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "error": str(e)}
-        )
+        # The key did not work — do not leave a broken one behind.
+        config_manager.set_runtime_api_key("")
+        return {"success": False, "models": [], "from_api": False, "error": str(e)}
+    finally:
+        await analyzer.close()
 
 
 @app.post("/api/reset-api-key")
-async def reset_api_key(request: ResetKeyRequest):
-    """Reset API key for a provider."""
-    if request.provider not in ["gemini", "openrouter"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
-
-    config_manager.set_runtime_api_key(request.provider, "")
-    return {"success": True, "message": f"{request.provider} API key has been reset"}
-
-
-@app.post("/api/reset-all")
-async def reset_all_config():
-    """Reset all runtime configuration."""
-    config_manager.set_runtime_api_key("gemini", "")
-    config_manager.set_runtime_api_key("openrouter", "")
-    return {"success": True, "message": "All API keys have been reset"}
+async def reset_api_key():
+    """Forget the runtime API key (env values are untouched)."""
+    config_manager.set_runtime_api_key("")
+    return {"success": True, "message": "API key has been reset"}
 
 
 @app.get("/api/video-types")
@@ -266,9 +244,6 @@ async def get_clips_criteria_default():
 @app.post("/api/generate-prompt")
 async def generate_prompt(request: PromptGenerationRequest):
     """Generate model-aware XML prompt for analysis or keyframes criteria."""
-    if request.provider not in ["gemini", "openrouter"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
-
     if request.target not in ["analysis", "keyframes", "clips"]:
         raise HTTPException(status_code=400, detail="Invalid target")
 
@@ -278,24 +253,14 @@ async def generate_prompt(request: PromptGenerationRequest):
     if not request.model or not request.model.strip():
         raise HTTPException(status_code=400, detail="Model is required")
 
-    if not config_manager.has_valid_api_key(request.provider):
-        raise HTTPException(
-            status_code=400,
-            detail=f"API key for {request.provider} not configured. Please set it first."
-        )
-
     analyzer = None
     try:
-        api_key = config_manager.get_api_key(request.provider)
-        if request.provider == "gemini":
-            analyzer = GeminiAnalyzer(model_name=request.model, api_key=api_key)
-        else:
-            analyzer = OpenRouterAnalyzer(model_name=request.model, api_key=api_key)
+        analyzer = build_analyzer(request.model)
 
         generation_instruction = prompt_generation_service.build_generation_instruction(
             target=request.target,
             description=request.description,
-            provider=request.provider,
+            provider=config_manager.settings.openai_base_url,
             model=request.model,
             video_type=request.video_type
         )
@@ -310,8 +275,8 @@ async def generate_prompt(request: PromptGenerationRequest):
         except PromptGenerationError as parse_error:
             # Local fallback only: avoid extra model call to keep latency low.
             logger.warning(
-                "Prompt generation parse failed | provider=%s model=%s target=%s error=%s raw_head=%s",
-                request.provider,
+                "Prompt generation parse failed | endpoint=%s model=%s target=%s error=%s raw_head=%s",
+                config_manager.settings.openai_base_url,
                 request.model,
                 request.target,
                 str(parse_error),
@@ -320,13 +285,13 @@ async def generate_prompt(request: PromptGenerationRequest):
             generated_xml = prompt_generation_service.build_deterministic_fallback(
                 target=request.target,
                 description=request.description,
-                provider=request.provider,
+                provider=config_manager.settings.openai_base_url,
                 model=request.model,
                 video_type=request.video_type
             )
             logger.warning(
-                "Prompt generation fallback template used | provider=%s model=%s target=%s",
-                request.provider,
+                "Prompt generation fallback template used | endpoint=%s model=%s target=%s",
+                config_manager.settings.openai_base_url,
                 request.model,
                 request.target
             )
@@ -348,33 +313,22 @@ async def generate_prompt(request: PromptGenerationRequest):
             await analyzer.close()
 
 
-@app.get("/api/models/{provider}")
-async def get_models(provider: str):
-    """Get available models for a provider."""
-    try:
-        if provider == "gemini":
-            api_key = config_manager.get_api_key("gemini")
-            if not api_key:
-                # Return default models if no API key
-                return {"models": GeminiAnalyzer.DEFAULT_MODELS, "from_api": False}
-            analyzer = GeminiAnalyzer(api_key=api_key)
-        elif provider == "openrouter":
-            api_key = config_manager.get_api_key("openrouter")
-            if not api_key:
-                return {"models": OpenRouterAnalyzer.DEFAULT_MODELS, "from_api": False}
-            analyzer = OpenRouterAnalyzer(api_key=api_key)
-        else:
-            raise HTTPException(status_code=400, detail="Invalid provider")
+@app.get("/api/models")
+async def get_models():
+    """List the models the configured endpoint reports. No hardcoded fallback.
 
+    Against a LiteLLM proxy this carries per-model capabilities (vision,
+    context length); against plain vLLM/llama.cpp it is whatever /v1/models
+    returns, since local model names cannot be known in advance.
+    """
+    analyzer = build_analyzer()
+    try:
         models = await analyzer.get_available_models()
         return {"models": models, "from_api": True}
-
     except Exception as e:
-        # Return default models on error
-        if provider == "gemini":
-            return {"models": GeminiAnalyzer.DEFAULT_MODELS, "from_api": False, "error": str(e)}
-        else:
-            return {"models": OpenRouterAnalyzer.DEFAULT_MODELS, "from_api": False, "error": str(e)}
+        return {"models": [], "from_api": False, "error": str(e)}
+    finally:
+        await analyzer.close()
 
 
 @app.post("/api/upload")
@@ -450,7 +404,7 @@ async def start_analysis(
     file_id: str = Form(...),
     filename: str = Form(...),
     video_type: str = Form(...),
-    provider: str = Form(...),
+    provider: str = Form(None),
     model: str = Form(...),
     custom_prompt: Optional[str] = Form(None),
     with_keyframes: bool = Form(False),
@@ -464,12 +418,6 @@ async def start_analysis(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Video file not found")
 
-    if not config_manager.has_valid_api_key(provider):
-        raise HTTPException(
-            status_code=400,
-            detail=f"API key for {provider} not configured. Please set it first."
-        )
-
     # Create job
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
@@ -481,7 +429,6 @@ async def start_analysis(
         "created_at": datetime.now().isoformat(),
         "file_path": str(file_path),
         "video_type": video_type,
-        "provider": provider,
         "model": model,
         "warnings": [],
         "artifacts": {
@@ -503,7 +450,6 @@ async def start_analysis(
         job_id,
         str(file_path),
         video_type,
-        provider,
         model,
         custom_prompt,
         with_keyframes,
@@ -616,7 +562,6 @@ async def process_video_job(
     job_id: str,
     file_path: str,
     video_type: str,
-    provider: str,
     model: str,
     custom_prompt: Optional[str],
     with_keyframes: bool,
@@ -625,6 +570,8 @@ async def process_video_job(
     custom_clips_criteria: Optional[str] = None
 ):
     """Process video analysis in background."""
+    analyzer = None
+    processor = None
     try:
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["current_step"] = "Loading prompt template..."
@@ -669,11 +616,10 @@ async def process_video_job(
         # Initialize processor and analyzer
         processor = VideoProcessor(temp_dir=str(BASE_DIR / "temporary"))
 
-        api_key = config_manager.get_api_key(provider)
-        if provider == "gemini":
-            analyzer = GeminiAnalyzer(model_name=model, api_key=api_key)
-        else:
-            analyzer = OpenRouterAnalyzer(model_name=model, api_key=api_key)
+        analyzer = build_analyzer(model)
+        logger.info(
+            "Using model %s at %s", model, config_manager.settings.openai_base_url
+        )
 
         # Split video into chunks
         jobs[job_id]["current_step"] = "Splitting video into chunks..."
@@ -732,7 +678,7 @@ async def process_video_job(
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(f"# Video Analysis: {video_name}\n\n")
             f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
-            f.write(f"**Provider:** {provider}\n")
+            f.write(f"**Endpoint:** {config_manager.settings.openai_base_url}\n")
             f.write(f"**Model:** {model}\n")
             f.write(f"**Video Type:** {VIDEO_TYPES.get(video_type, {}).get('name', video_type)}\n\n")
             f.write("---\n\n")
@@ -790,9 +736,6 @@ async def process_video_job(
                 jobs[job_id]["warnings"].append(warning)
                 clip_artifact["error"] = warning
 
-        # Cleanup temp files
-        processor.cleanup_job(job_id)
-
         # Complete
         jobs[job_id]["progress"] = 100
         jobs[job_id]["status"] = "completed"
@@ -808,6 +751,13 @@ async def process_video_job(
     except Exception as e:
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = f"Unexpected error: {str(e)}"
+    finally:
+        # Clients and temp chunks are per job — do not leak either, including
+        # on the failure paths.
+        if analyzer is not None:
+            await analyzer.close()
+        if processor is not None:
+            processor.cleanup_job(job_id)
 
 
 # ============== Startup/Shutdown ==============
