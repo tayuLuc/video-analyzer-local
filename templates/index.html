@@ -20,7 +20,7 @@
                 </svg>
                 <h1>Video Analyzer</h1>
             </div>
-            <p class="subtitle">AI-powered video analysis with Gemini and OpenRouter</p>
+            <p class="subtitle">AI-powered video analysis with Gemini, OpenRouter, and OpenAI</p>
         </header>
 
         <!-- Main Content -->
@@ -43,18 +43,29 @@
                             <span class="status-badge" id="gemini-status">Not configured</span>
                         </div>
                     </label>
-                    <label class="provider-option">
-                        <input type="radio" name="provider" value="openrouter">
-                        <div class="provider-card">
-                            <div class="provider-icon openrouter-icon">OR</div>
-                            <div class="provider-info">
-                                <h3>OpenRouter</h3>
-                                <p>Access multiple AI models via OpenRouter</p>
-                            </div>
-                            <span class="status-badge" id="openrouter-status">Not configured</span>
-                        </div>
-                    </label>
-                </div>
+                     <label class="provider-option">
+                         <input type="radio" name="provider" value="openrouter">
+                         <div class="provider-card">
+                             <div class="provider-icon openrouter-icon">OR</div>
+                             <div class="provider-info">
+                                 <h3>OpenRouter</h3>
+                                 <p>Access multiple AI models via OpenRouter</p>
+                             </div>
+                             <span class="status-badge" id="openrouter-status">Not configured</span>
+                         </div>
+                     </label>
+                     <label class="provider-option">
+                         <input type="radio" name="provider" value="openai">
+                         <div class="provider-card">
+                             <div class="provider-icon openai-icon">AI</div>
+                             <div class="provider-info">
+                                 <h3>OpenAI</h3>
+                                 <p>Local AI models or OpenAI API</p>
+                             </div>
+                             <span class="status-badge" id="openai-status">Local API</span>
+                         </div>
+                     </label>
+                 </div>
 
                 <!-- API Key Input (shown when not configured) -->
                 <div class="api-key-section" id="api-key-section" style="display: none;">
@@ -286,7 +297,7 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Video Analyzer v1.0 | Powered by Google Gemini and OpenRouter</p>
+            <p>Video Analyzer v1.0 | Powered by Google Gemini, OpenRouter, and OpenAI</p>
         </footer>
     </div>
 

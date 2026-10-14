@@ -2,6 +2,7 @@
 Google Gemini video analyzer using the Generative AI SDK.
 Supports both direct API access and Vertex AI.
 """
+
 import os
 import asyncio
 from typing import Dict, List, Optional, Any
@@ -11,7 +12,7 @@ from app.analyzers.base import (
     AnalyzerError,
     RateLimitError,
     AuthenticationError,
-    VideoProcessingError
+    VideoProcessingError,
 )
 from app.config import config_manager
 
@@ -20,14 +21,11 @@ class GeminiAnalyzer(BaseAnalyzer):
     """Video analyzer using Google Gemini API."""
 
     # Known Gemini models that support video
-    DEFAULT_MODELS = [
-        {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Fast, efficient model"},
-        {"id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash Lite", "description": "Lightweight version"},
-        {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "description": "Previous generation fast model"},
-        {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "description": "Previous generation pro model"},
-    ]
+    DEFAULT_MODELS = []
 
-    def __init__(self, model_name: str = "gemini-2.0-flash", api_key: Optional[str] = None):
+    def __init__(
+        self, model_name: str = "gemini-2.0-flash", api_key: Optional[str] = None
+    ):
         super().__init__(model_name, api_key)
         self._client = None
         self._model = None
@@ -54,10 +52,7 @@ class GeminiAnalyzer(BaseAnalyzer):
         return self._client, self._model
 
     async def analyze_video(
-        self,
-        video_path: str,
-        prompt: str,
-        chunk_info: Optional[Dict] = None
+        self, video_path: str, prompt: str, chunk_info: Optional[Dict] = None
     ) -> str:
         """Analyze video using Gemini API."""
         try:
@@ -85,9 +80,11 @@ class GeminiAnalyzer(BaseAnalyzer):
                     formatted_prompt = prompt.format(
                         chunk_number=chunk_info.get("chunk_number", 1),
                         total_chunks=chunk_info.get("total_chunks", 1),
-                        start_time_minutes=round(chunk_info.get("start_time", 0) / 60, 1),
+                        start_time_minutes=round(
+                            chunk_info.get("start_time", 0) / 60, 1
+                        ),
                         end_time_minutes=round(chunk_info.get("end_time", 0) / 60, 1),
-                        duration_minutes=round(chunk_info.get("duration", 0) / 60, 1)
+                        duration_minutes=round(chunk_info.get("duration", 0) / 60, 1),
                     )
                 except KeyError:
                     # If prompt doesn't have placeholders, use as-is
@@ -95,8 +92,7 @@ class GeminiAnalyzer(BaseAnalyzer):
 
             # Generate content
             response = await asyncio.to_thread(
-                model.generate_content,
-                [video_file, formatted_prompt]
+                model.generate_content, [video_file, formatted_prompt]
             )
 
             # Clean up uploaded file
@@ -165,14 +161,18 @@ class GeminiAnalyzer(BaseAnalyzer):
                     supports_video = True
 
                 if supports_video:
-                    models.append({
-                        "id": model_id,
-                        "name": model.display_name,
-                        "description": model.description or "",
-                        "input_token_limit": input_limit,
-                        "output_token_limit": getattr(model, "output_token_limit", None),
-                        "supports_video": True,
-                    })
+                    models.append(
+                        {
+                            "id": model_id,
+                            "name": model.display_name,
+                            "description": model.description or "",
+                            "input_token_limit": input_limit,
+                            "output_token_limit": getattr(
+                                model, "output_token_limit", None
+                            ),
+                            "supports_video": True,
+                        }
+                    )
 
             # Sort by version (newer first), then by name
             def sort_key(m):
@@ -194,8 +194,8 @@ class GeminiAnalyzer(BaseAnalyzer):
             return models if models else self.DEFAULT_MODELS
 
         except Exception as e:
-            # Return default models on error
-            return self.DEFAULT_MODELS
+            # Re-raise exception to let main.py handle it and report error
+            raise AnalyzerError(f"Failed to fetch models: {e}")
 
     def validate_api_key(self) -> bool:
         """Validate Gemini API key by checking format."""
@@ -230,17 +230,16 @@ class GeminiAnalyzer(BaseAnalyzer):
             _, model = self._get_client()
 
             # Join all analyses
-            combined_text = "\n\n---\n\n".join([
-                f"=== Chunk {i+1} Analysis ===\n{analysis}"
-                for i, analysis in enumerate(analyses)
-            ])
+            combined_text = "\n\n---\n\n".join(
+                [
+                    f"=== Chunk {i + 1} Analysis ===\n{analysis}"
+                    for i, analysis in enumerate(analyses)
+                ]
+            )
 
             full_prompt = f"{combine_prompt}\n\n{combined_text}"
 
-            response = await asyncio.to_thread(
-                model.generate_content,
-                full_prompt
-            )
+            response = await asyncio.to_thread(model.generate_content, full_prompt)
 
             return response.text
 

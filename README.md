@@ -1,10 +1,10 @@
-# Video Analyzer Web
+# Video Analyzer Local
 
-AI-powered video analysis with Google Gemini and OpenRouter. Analyze videos using various specialized prompts for different content types.
+AI-powered video analysis with **local and cloud vision models** (Ollama / vLLM via any OpenAI-compatible `/v1`, Google Gemini, OpenRouter). Upload a video, get chunked multimodal analysis with specialized XML prompts: key frames, lossless knowledge capture, custom modes.
 
 ## Features
 
-- **Dual Provider Support**: Choose between Google Gemini (direct API) or OpenRouter (multiple models)
+- **Local-first providers**: any OpenAI-compatible server (Ollama, vLLM) plus Google Gemini and OpenRouter
 - **Dynamic Model Selection**: Fetches available models from providers in real-time
 - **Web Interface**: Modern, responsive UI for easy video analysis
 - **9 Specialized Prompts**: Different analysis types for various video content

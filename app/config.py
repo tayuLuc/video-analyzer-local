@@ -2,6 +2,7 @@
 Configuration management for Video Analyzer Web App.
 Supports both environment variables and runtime configuration via API.
 """
+
 import os
 from typing import Optional
 from pydantic import BaseModel
@@ -20,12 +21,17 @@ class Settings(BaseModel):
     # Google Cloud / Gemini settings
     google_cloud_project_id: Optional[str] = None
     vertex_ai_location: str = "global"
-    gemini_model_name: str = "gemini-2.0-flash"
+    gemini_model_name: str = ""
     gemini_api_key: Optional[str] = None  # For direct Gemini API (not Vertex AI)
 
     # OpenRouter settings
     openrouter_api_key: Optional[str] = None
-    openrouter_model_name: str = "google/gemini-2.0-flash-exp:free"
+    openrouter_model_name: str = ""
+
+    # OpenAI settings
+    openai_api_key: Optional[str] = None
+    openai_model_name: str = ""
+    openai_base_url: str = "http://host.docker.internal:8001/v1"
 
     # Processing settings
     chunk_duration_minutes: int = 10
@@ -54,10 +60,15 @@ class ConfigManager:
             analyzer_type=os.getenv("ANALYZER_TYPE", "gemini"),
             google_cloud_project_id=os.getenv("GOOGLE_CLOUD_PROJECT_ID"),
             vertex_ai_location=os.getenv("VERTEX_AI_LOCATION", "global"),
-            gemini_model_name=os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash"),
+            gemini_model_name=os.getenv("GEMINI_MODEL_NAME", ""),
             gemini_api_key=os.getenv("GEMINI_API_KEY"),
             openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
-            openrouter_model_name=os.getenv("OPENROUTER_MODEL_NAME", "google/gemini-2.0-flash-exp:free"),
+            openrouter_model_name=os.getenv("OPENROUTER_MODEL_NAME", ""),
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            openai_model_name=os.getenv("OPENAI_MODEL_NAME", ""),
+            openai_base_url=os.getenv(
+                "OPENAI_BASE_URL", "http://host.docker.internal:8001/v1"
+            ),
             chunk_duration_minutes=int(os.getenv("CHUNK_DURATION_MINUTES", "10")),
             max_upload_size_mb=int(os.getenv("MAX_UPLOAD_SIZE_MB", "500")),
             upload_directory=os.getenv("UPLOAD_DIRECTORY", "uploads"),
@@ -78,7 +89,12 @@ class ConfigManager:
         if provider == "gemini":
             return self._runtime_api_keys.get("gemini") or self._settings.gemini_api_key
         elif provider == "openrouter":
-            return self._runtime_api_keys.get("openrouter") or self._settings.openrouter_api_key
+            return (
+                self._runtime_api_keys.get("openrouter")
+                or self._settings.openrouter_api_key
+            )
+        elif provider == "openai":
+            return self._runtime_api_keys.get("openai") or self._settings.openai_api_key
         return None
 
     def set_runtime_api_key(self, provider: str, api_key: str):
@@ -99,6 +115,14 @@ class ConfigManager:
     def get_google_project_id(self) -> Optional[str]:
         """Get Google Cloud project ID."""
         return self._settings.google_cloud_project_id
+
+    def get_openai_base_url(self) -> str:
+        """Get OpenAI base URL."""
+        return self._settings.openai_base_url
+
+    def get_openai_model_name(self) -> str:
+        """Get OpenAI model name."""
+        return self._settings.openai_model_name
 
 
 # Global config manager instance

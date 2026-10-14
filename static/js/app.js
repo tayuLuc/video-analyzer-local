@@ -31,6 +31,7 @@ const elements = {
     providerRadios: document.querySelectorAll('input[name="provider"]'),
     geminiStatus: document.getElementById('gemini-status'),
     openrouterStatus: document.getElementById('openrouter-status'),
+    openaiStatus: document.getElementById('openai-status'),
 
     // API Key
     apiKeySection: document.getElementById('api-key-section'),
@@ -173,7 +174,9 @@ async function fetchModels(provider) {
             // Select default model
             const defaultModel = provider === 'gemini'
                 ? state.config?.default_gemini_model
-                : state.config?.default_openrouter_model;
+                : provider === 'openrouter'
+                ? state.config?.default_openrouter_model
+                : state.config?.default_openai_model;
 
             if (defaultModel && data.models.some(m => m.id === defaultModel)) {
                 elements.modelSelect.value = defaultModel;
@@ -190,7 +193,11 @@ async function fetchModels(provider) {
         }
 
         if (!data.from_api) {
-            showToast('Using default model list (enter API key for full list)', 'warning');
+            if (data.error) {
+                showToast(`Failed to fetch models: ${data.error}`, 'error');
+            } else {
+                showToast('Using default model list (enter API key for full list)', 'warning');
+            }
         }
     } catch (error) {
         console.error('Failed to fetch models:', error);
@@ -246,8 +253,10 @@ async function setApiKey(provider, apiKey) {
             // Update config
             if (provider === 'gemini') {
                 state.config.gemini_configured = true;
-            } else {
+            } else if (provider === 'openrouter') {
                 state.config.openrouter_configured = true;
+            } else if (provider === 'openai') {
+                state.config.openai_configured = true;
             }
 
             updateProviderStatus();
@@ -386,7 +395,8 @@ async function pollJobStatus() {
 function updateProviderStatus() {
     if (!state.config) return;
 
-    const providerDisplayName = state.provider === 'gemini' ? 'Gemini' : 'OpenRouter';
+    const providerDisplayName = state.provider === 'gemini' ? 'Gemini' :
+                               state.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI';
 
     // Update status badges
     if (state.config.gemini_configured) {
@@ -405,10 +415,16 @@ function updateProviderStatus() {
         elements.openrouterStatus.classList.remove('configured');
     }
 
+    // OpenAI is always "available" since it supports local APIs
+    elements.openaiStatus.textContent = 'Local API';
+    elements.openaiStatus.classList.add('configured');
+
     // Check if current provider is configured
     const isConfigured = state.provider === 'gemini'
         ? state.config.gemini_configured
-        : state.config.openrouter_configured;
+        : state.provider === 'openrouter'
+        ? state.config.openrouter_configured
+        : true; // OpenAI is always configured (local API)
 
     if (!isConfigured) {
         // Show API key input section
@@ -418,8 +434,10 @@ function updateProviderStatus() {
 
         if (state.provider === 'gemini') {
             elements.apiKeyHint.innerHTML = 'Get your Gemini API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>';
-        } else {
+        } else if (state.provider === 'openrouter') {
             elements.apiKeyHint.innerHTML = 'Get your OpenRouter API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>';
+        } else { // openai
+            elements.apiKeyHint.innerHTML = 'For local APIs (Ollama, etc.), no key needed. For OpenAI cloud API, get your key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a>';
         }
     } else {
         // Show reset key section
@@ -447,8 +465,10 @@ async function resetApiKey(provider) {
             // Update config
             if (provider === 'gemini') {
                 state.config.gemini_configured = false;
-            } else {
+            } else if (provider === 'openrouter') {
                 state.config.openrouter_configured = false;
+            } else if (provider === 'openai') {
+                state.config.openai_configured = false;
             }
 
             updateProviderStatus();
@@ -630,7 +650,11 @@ function updateAnalyzeButton() {
     const hasVideoType = state.videoType !== '';
     const isConfigured = state.provider === 'gemini'
         ? state.config?.gemini_configured
-        : state.config?.openrouter_configured;
+        : state.provider === 'openrouter'
+        ? state.config?.openrouter_configured
+        : state.provider === 'openai'
+        ? true // OpenAI always configured (supports local APIs)
+        : false;
 
     elements.analyzeBtn.disabled = !(hasVideo && hasProvider && hasModel && hasVideoType && isConfigured);
 }
@@ -739,7 +763,9 @@ elements.changeKeyBtn.addEventListener('click', () => {
 
 // Reset API Key
 elements.resetKeyBtn.addEventListener('click', () => {
-    if (confirm(`Are you sure you want to reset the ${state.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} API key?`)) {
+    const providerName = state.provider === 'gemini' ? 'Gemini' :
+                        state.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI';
+    if (confirm(`Are you sure you want to reset the ${providerName} API key?`)) {
         resetApiKey(state.provider);
     }
 });

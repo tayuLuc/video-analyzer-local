@@ -2,6 +2,7 @@
 Prompt template management for video analysis.
 Loads and manages XML prompt templates for different video types.
 """
+
 import os
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -14,48 +15,58 @@ VIDEO_TYPES = {
     "general": {
         "name": "General Analysis",
         "description": "Universal video analysis for any content type",
-        "prompt_file": "chunk_analysis_prompt.xml"
+        "prompt_file": "chunk_analysis_prompt.xml",
+    },
+    "general_detailed": {
+        "name": "General Analysis (Detailed)",
+        "description": "Deep analysis: structure + visuals + speech (Max detail)",
+        "prompt_file": "chunk_analysis_general_detailed.xml",
+    },
+    "knowledge_backup": {
+        "name": "Lossless Knowledge Extraction",
+        "description": "Zero-Knowledge Loss: Exhaustive log, verbatim quotes, logic synthesis",
+        "prompt_file": "chunk_analysis_knowledge_backup.xml",
     },
     "lecture": {
         "name": "Lecture / Educational",
         "description": "Educational content, online courses, lectures",
-        "prompt_file": "chunk_analysis_lecture.xml"
+        "prompt_file": "chunk_analysis_lecture.xml",
     },
     "tutorial": {
         "name": "Tutorial / How-to",
         "description": "Step-by-step tutorials and guides",
-        "prompt_file": "chunk_analysis_tutorial.xml"
+        "prompt_file": "chunk_analysis_tutorial.xml",
     },
     "marketing": {
         "name": "Marketing / Product Demo",
         "description": "Product demonstrations, advertisements, promotional videos",
-        "prompt_file": "chunk_analysis_marketing.xml"
+        "prompt_file": "chunk_analysis_marketing.xml",
     },
     "presentation": {
         "name": "Presentation / Pitch",
         "description": "Business presentations, pitches, investor decks",
-        "prompt_file": "chunk_analysis_presentation.xml"
+        "prompt_file": "chunk_analysis_presentation.xml",
     },
     "meeting": {
         "name": "Meeting / Standup",
         "description": "Work meetings, standups, team calls",
-        "prompt_file": "chunk_analysis_meeting.xml"
+        "prompt_file": "chunk_analysis_meeting.xml",
     },
     "interview": {
         "name": "Interview Evaluation",
         "description": "Job interviews with detailed candidate evaluation",
-        "prompt_file": "chunk_analysis_interview.xml"
+        "prompt_file": "chunk_analysis_interview.xml",
     },
     "language_lesson": {
         "name": "Language Lesson",
         "description": "Language instruction with full transcription",
-        "prompt_file": "chunk_analysis_language_lesson.xml"
+        "prompt_file": "chunk_analysis_language_lesson.xml",
     },
     "voiceover": {
         "name": "Voiceover / Sound Design",
         "description": "Generate AI music/SFX prompts based on video",
-        "prompt_file": "chunk_analysis_voiceover.xml"
-    }
+        "prompt_file": "chunk_analysis_voiceover.xml",
+    },
 }
 
 
@@ -71,12 +82,14 @@ class PromptManager:
         result = []
         for type_id, info in VIDEO_TYPES.items():
             prompt_path = os.path.join(self.prompts_dir, info["prompt_file"])
-            result.append({
-                "id": type_id,
-                "name": info["name"],
-                "description": info["description"],
-                "available": os.path.exists(prompt_path)
-            })
+            result.append(
+                {
+                    "id": type_id,
+                    "name": info["name"],
+                    "description": info["description"],
+                    "available": os.path.exists(prompt_path),
+                }
+            )
         return result
 
     def get_keyframes_criteria_default(self) -> str:
@@ -119,7 +132,7 @@ class PromptManager:
         self,
         video_type: str,
         with_keyframes: bool = False,
-        custom_keyframes_criteria: Optional[str] = None
+        custom_keyframes_criteria: Optional[str] = None,
     ) -> str:
         """
         Load prompt template for specified video type.
@@ -206,7 +219,7 @@ Combine the following analyses into one comprehensive document:"""
         total_chunks: int,
         start_time_minutes: float,
         end_time_minutes: float,
-        duration_minutes: float
+        duration_minutes: float,
     ) -> str:
         """Format prompt template with chunk information."""
         return prompt.format(
@@ -214,7 +227,7 @@ Combine the following analyses into one comprehensive document:"""
             total_chunks=total_chunks,
             start_time_minutes=round(start_time_minutes, 1),
             end_time_minutes=round(end_time_minutes, 1),
-            duration_minutes=round(duration_minutes, 1)
+            duration_minutes=round(duration_minutes, 1),
         )
 
     def clear_cache(self):

@@ -1,32 +1,52 @@
 """
 FastAPI main application for Video Analyzer Web.
 """
-import os
-import uuid
-import json
-import asyncio
-from datetime import datetime
-from typing import Optional, Dict, List
-from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+import os
+import logging
+import hashlib
+from pathlib import Path
+import uuid
+from datetime import datetime
+from typing import Dict, Optional
+from fastapi import (
+    FastAPI,
+    File,
+    UploadFile,
+    HTTPException,
+    Request,
+    Form,
+    BackgroundTasks,
+)
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 from app.config import config_manager
 from app.prompts import prompt_manager, VIDEO_TYPES
 from app.video_processor import VideoProcessor, seconds_to_timecode
-from app.analyzers import GeminiAnalyzer, OpenRouterAnalyzer, AnalyzerError, AuthenticationError
+from app.analyzers import (
+    GeminiAnalyzer,
+    OpenRouterAnalyzer,
+    OpenAIAnalyzer,
+    AnalyzerError,
+    AuthenticationError,
+)
 
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Video Analyzer",
     description="AI-powered video analysis with Gemini and OpenRouter",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Setup static files and templates
@@ -40,6 +60,7 @@ for dir_name in ["uploads", "outputs", "temporary"]:
 
 
 # ============== Models ==============
+
 
 class APIKeyRequest(BaseModel):
     provider: str
@@ -66,7 +87,7 @@ class KeyframeItem(BaseModel):
 
 class ExtractKeyframesRequest(BaseModel):
     filename: str
-    keyframes: List[KeyframeItem]
+    keyframes: list[KeyframeItem]
 
 
 class JobStatus(BaseModel):
@@ -86,6 +107,7 @@ jobs: Dict[str, Dict] = {}
 
 # ============== API Endpoints ==============
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Render main page."""
@@ -99,18 +121,106 @@ async def get_config():
     return {
         "gemini_configured": config_manager.has_valid_api_key("gemini"),
         "openrouter_configured": config_manager.has_valid_api_key("openrouter"),
+        "openai_configured": config_manager.has_valid_api_key("openai"),
         "default_provider": settings.analyzer_type,
         "default_gemini_model": settings.gemini_model_name,
         "default_openrouter_model": settings.openrouter_model_name,
+        "default_openai_model": settings.openai_model_name,
         "max_upload_size_mb": settings.max_upload_size_mb,
         "chunk_duration_minutes": settings.chunk_duration_minutes,
     }
 
 
+@app.get("/api/video-types")
+async def get_video_types():
+    """Get available video analysis types."""
+    return prompt_manager.get_available_types()
+
+
+@app.get("/api/models/{provider}")
+async def get_models(provider: str):
+    """Get available models for a provider."""
+    if provider not in ["gemini", "openrouter", "openai"]:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    try:
+        if provider == "gemini":
+            api_key = config_manager.get_api_key("gemini")
+            # If no API key, return empty list (client will show API key input)
+            if not api_key:
+                return {"models": GeminiAnalyzer.DEFAULT_MODELS, "from_api": False}
+
+            analyzer = GeminiAnalyzer(api_key=api_key)
+            models = await analyzer.get_available_models()
+            return {"models": models, "from_api": True}
+
+        elif provider == "openrouter":
+            api_key = config_manager.get_api_key("openrouter")
+            if not api_key:
+                return {"models": OpenRouterAnalyzer.DEFAULT_MODELS, "from_api": False}
+
+            analyzer = OpenRouterAnalyzer(api_key=api_key)
+            models = await analyzer.get_available_models()
+            return {"models": models, "from_api": True}
+
+        elif provider == "openai":
+            api_key = config_manager.get_api_key("openai")
+            base_url = config_manager.get_openai_base_url()
+            # We need a model name to initialize, even if we're just listing models
+            default_model = config_manager.settings.openai_model_name
+            analyzer = OpenAIAnalyzer(
+                model_name=default_model, api_key=api_key, base_url=base_url
+            )
+            models = await analyzer.get_available_models()
+            return {"models": models, "from_api": True}
+
+    except Exception as e:
+        # Return default models on error with error message
+        if provider == "gemini":
+            return {
+                "models": GeminiAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
+        elif provider == "openrouter":
+            return {
+                "models": OpenRouterAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
+        elif provider == "openai":
+            return {
+                "models": OpenAIAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
+
+
+@app.get("/api/prompt/{video_type}")
+async def get_prompt(video_type: str):
+    """Get prompt template for video type."""
+    try:
+        prompt = prompt_manager.load_prompt(video_type)
+        type_info = VIDEO_TYPES.get(video_type, {})
+        return {"prompt": prompt, "type_info": type_info}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/keyframes-criteria-default")
+async def get_keyframes_criteria_default():
+    """Get default keyframes criteria."""
+    try:
+        criteria = prompt_manager.get_keyframes_criteria_default()
+        return {"criteria": criteria}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/set-api-key")
 async def set_api_key(request: APIKeyRequest):
     """Set API key for a provider at runtime."""
-    if request.provider not in ["gemini", "openrouter"]:
+    if request.provider not in ["gemini", "openrouter", "openai"]:
         raise HTTPException(status_code=400, detail="Invalid provider")
 
     config_manager.set_runtime_api_key(request.provider, request.api_key)
@@ -120,103 +230,46 @@ async def set_api_key(request: APIKeyRequest):
         if request.provider == "gemini":
             analyzer = GeminiAnalyzer(api_key=request.api_key)
             is_valid = await analyzer.validate_api_key_async()
-        else:
+        elif request.provider == "openrouter":
             analyzer = OpenRouterAnalyzer(api_key=request.api_key)
             is_valid = await analyzer.validate_api_key_async()
-
-        if not is_valid:
-            # Clear the invalid key
-            config_manager.set_runtime_api_key(request.provider, "")
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": "API key validation failed"}
+        else:  # openai
+            api_key = config_manager.get_api_key("openai")
+            base_url = config_manager.get_openai_base_url()
+            # We need a model name to initialize, even if we're just listing models
+            default_model = config_manager.settings.openai_model_name
+            analyzer = OpenAIAnalyzer(
+                model_name=default_model, api_key=api_key, base_url=base_url
             )
-
-        return {"success": True, "message": f"{request.provider} API key configured"}
-
-    except Exception as e:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@app.post("/api/reset-api-key")
-async def reset_api_key(request: ResetKeyRequest):
-    """Reset API key for a provider."""
-    if request.provider not in ["gemini", "openrouter"]:
-        raise HTTPException(status_code=400, detail="Invalid provider")
-
-    config_manager.set_runtime_api_key(request.provider, "")
-    return {"success": True, "message": f"{request.provider} API key has been reset"}
-
-
-@app.post("/api/reset-all")
-async def reset_all_config():
-    """Reset all runtime configuration."""
-    config_manager.set_runtime_api_key("gemini", "")
-    config_manager.set_runtime_api_key("openrouter", "")
-    return {"success": True, "message": "All API keys have been reset"}
-
-
-@app.get("/api/video-types")
-async def get_video_types():
-    """Get available video types for analysis."""
-    return prompt_manager.get_available_types()
-
-
-@app.get("/api/prompt/{video_type}")
-async def get_prompt(video_type: str):
-    """Get prompt template for a video type (without keyframes - they are shown separately)."""
-    try:
-        # Always load without keyframes for UI display
-        # Keyframes criteria are shown in a separate textarea
-        prompt = prompt_manager.load_prompt(video_type, with_keyframes=False)
-        return {
-            "video_type": video_type,
-            "prompt": prompt,
-            "type_info": VIDEO_TYPES.get(video_type, {})
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@app.get("/api/keyframes-criteria-default")
-async def get_keyframes_criteria_default():
-    """Get default keyframes criteria description (editable by user)."""
-    criteria = prompt_manager.get_keyframes_criteria_default()
-    return {"criteria": criteria}
-
-
-@app.get("/api/models/{provider}")
-async def get_models(provider: str):
-    """Get available models for a provider."""
-    try:
-        if provider == "gemini":
-            api_key = config_manager.get_api_key("gemini")
-            if not api_key:
-                # Return default models if no API key
-                return {"models": GeminiAnalyzer.DEFAULT_MODELS, "from_api": False}
-            analyzer = GeminiAnalyzer(api_key=api_key)
-        elif provider == "openrouter":
-            api_key = config_manager.get_api_key("openrouter")
-            if not api_key:
-                return {"models": OpenRouterAnalyzer.DEFAULT_MODELS, "from_api": False}
-            analyzer = OpenRouterAnalyzer(api_key=api_key)
-        else:
-            raise HTTPException(status_code=400, detail="Invalid provider")
+            is_valid = await analyzer.validate_api_key_async()
 
         models = await analyzer.get_available_models()
         return {"models": models, "from_api": True}
 
     except Exception as e:
         # Return default models on error
-        if provider == "gemini":
-            return {"models": GeminiAnalyzer.DEFAULT_MODELS, "from_api": False, "error": str(e)}
+        if request.provider == "gemini":
+            return {
+                "models": GeminiAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
+        elif request.provider == "openrouter":
+            return {
+                "models": OpenRouterAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
+        elif request.provider == "openai":
+            return {
+                "models": OpenAIAnalyzer.DEFAULT_MODELS,
+                "from_api": False,
+                "error": str(e),
+            }
         else:
-            return {"models": OpenRouterAnalyzer.DEFAULT_MODELS, "from_api": False, "error": str(e)}
+            raise HTTPException(
+                status_code=400, detail=f"Unknown provider: {request.provider}"
+            )
 
 
 @app.post("/api/upload")
@@ -226,31 +279,65 @@ async def upload_video(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    allowed_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".wmv", ".flv"}
+    allowed_extensions = {
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".mkv",
+        ".webm",
+        ".m4v",
+        ".wmv",
+        ".flv",
+    }
     ext = Path(file.filename).suffix.lower()
 
     if ext not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=f"File type not supported. Allowed: {', '.join(allowed_extensions)}"
+            detail=f"File type not supported. Allowed: {', '.join(allowed_extensions)}",
         )
 
-    # Generate unique filename
-    file_id = str(uuid.uuid4())[:8]
-    safe_filename = f"{file_id}_{Path(file.filename).stem}{ext}"
-    file_path = BASE_DIR / "uploads" / safe_filename
+    # Read file content first
+    content = await file.read()
+    max_size = config_manager.settings.max_upload_size_mb * 1024 * 1024
+
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size: {config_manager.settings.max_upload_size_mb}MB",
+        )
+
+    # Calculate file hash for deduplication
+    file_hash = hashlib.sha256(content).hexdigest()[:16]  # 16 char hash
+    logger.info(f"Calculated hash {file_hash} for file {file.filename}")
+
+    # Check if file with this hash already exists
+    uploads_dir = BASE_DIR / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+
+    existing_files = list(uploads_dir.glob(f"{file_hash}*"))
+    if existing_files:
+        # File already exists, return info about existing file
+        existing_file = existing_files[0]
+        logger.info(f"File with hash {file_hash} already exists: {existing_file.name}")
+        processor = VideoProcessor()
+        video_info = processor.get_video_info(str(existing_file))
+
+        return {
+            "file_id": file_hash,
+            "filename": existing_file.name,
+            "original_name": file.filename,
+            "size_bytes": len(content),
+            "video_info": video_info,
+            "cached": True,
+        }
+
+    # Generate hash-based filename
+    safe_filename = f"{file_hash}_{Path(file.filename).stem}{ext}"
+    file_path = uploads_dir / safe_filename
 
     # Save file
     try:
-        content = await file.read()
-        max_size = config_manager.settings.max_upload_size_mb * 1024 * 1024
-
-        if len(content) > max_size:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large. Maximum size: {config_manager.settings.max_upload_size_mb}MB"
-            )
-
         with open(file_path, "wb") as f:
             f.write(content)
 
@@ -259,11 +346,12 @@ async def upload_video(file: UploadFile = File(...)):
         video_info = processor.get_video_info(str(file_path))
 
         return {
-            "file_id": file_id,
+            "file_id": file_hash,
             "filename": safe_filename,
             "original_name": file.filename,
             "size_bytes": len(content),
-            "video_info": video_info
+            "video_info": video_info,
+            "cached": False,
         }
 
     except HTTPException:
@@ -282,7 +370,7 @@ async def start_analysis(
     model: str = Form(...),
     custom_prompt: Optional[str] = Form(None),
     with_keyframes: bool = Form(False),
-    custom_keyframes_criteria: Optional[str] = Form(None)
+    custom_keyframes_criteria: Optional[str] = Form(None),
 ):
     """Start video analysis job."""
     # Validate inputs
@@ -290,10 +378,11 @@ async def start_analysis(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Video file not found")
 
-    if not config_manager.has_valid_api_key(provider):
+    # OpenAI supports local APIs without API key
+    if provider != "openai" and not config_manager.has_valid_api_key(provider):
         raise HTTPException(
             status_code=400,
-            detail=f"API key for {provider} not configured. Please set it first."
+            detail=f"API key for {provider} not configured. Please set it first.",
         )
 
     # Create job
@@ -321,7 +410,7 @@ async def start_analysis(
         model,
         custom_prompt,
         with_keyframes,
-        custom_keyframes_criteria
+        custom_keyframes_criteria,
     )
 
     return {"job_id": job_id, "status": "pending"}
@@ -340,7 +429,7 @@ async def get_job_status(job_id: str):
         progress=job["progress"],
         current_step=job["current_step"],
         result=job.get("result"),
-        error=job.get("error")
+        error=job.get("error"),
     )
 
 
@@ -376,28 +465,29 @@ async def extract_keyframes(request: ExtractKeyframesRequest):
             video_path=str(file_path),
             keyframes=keyframes_list,
             output_zip_path=str(zip_path),
-            job_id=extraction_id
+            job_id=extraction_id,
         )
 
         if not result["success"] or result["extracted_count"] == 0:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to extract keyframes. Extracted: {result['extracted_count']}, Failed: {result['failed_count']}"
+                detail=f"Failed to extract keyframes. Extracted: {result['extracted_count']}, Failed: {result['failed_count']}",
             )
 
         return FileResponse(
-            path=str(zip_path),
-            filename=zip_filename,
-            media_type="application/zip"
+            path=str(zip_path), filename=zip_filename, media_type="application/zip"
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to extract keyframes: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to extract keyframes: {str(e)}"
+        )
 
 
 # ============== Background Processing ==============
+
 
 async def process_video_job(
     job_id: str,
@@ -407,9 +497,12 @@ async def process_video_job(
     model: str,
     custom_prompt: Optional[str],
     with_keyframes: bool,
-    custom_keyframes_criteria: Optional[str] = None
+    custom_keyframes_criteria: Optional[str] = None,
 ):
     """Process video analysis in background."""
+    logger.info(
+        f"Starting job {job_id} for file {file_path} with provider {provider}, model {model}"
+    )
     try:
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["current_step"] = "Loading prompt template..."
@@ -418,12 +511,18 @@ async def process_video_job(
         # Load prompt
         if custom_prompt and custom_prompt.strip():
             prompt = custom_prompt
+            logger.info(f"Using custom prompt for job {job_id}")
         else:
             # Pass custom keyframes criteria if provided
             prompt = prompt_manager.load_prompt(
                 video_type,
                 with_keyframes,
-                custom_keyframes_criteria if custom_keyframes_criteria and custom_keyframes_criteria.strip() else None
+                custom_keyframes_criteria
+                if custom_keyframes_criteria and custom_keyframes_criteria.strip()
+                else None,
+            )
+            logger.info(
+                f"Loaded prompt template for video type {video_type}, keyframes: {with_keyframes}"
             )
 
         # Always append fixed keyframes JSON format if keyframes are enabled
@@ -439,10 +538,23 @@ async def process_video_job(
         processor = VideoProcessor(temp_dir=str(BASE_DIR / "temporary"))
 
         api_key = config_manager.get_api_key(provider)
+        logger.info(f"Initializing {provider} analyzer with model {model}")
         if provider == "gemini":
             analyzer = GeminiAnalyzer(model_name=model, api_key=api_key)
-        else:
+        elif provider == "openrouter":
             analyzer = OpenRouterAnalyzer(model_name=model, api_key=api_key)
+        else:  # openai
+            base_url = config_manager.get_openai_base_url()
+            analyzer = OpenAIAnalyzer(
+                model_name=model, api_key=api_key, base_url=base_url
+            )
+
+        # Prepare output directories early to save intermediate results
+        video_name = Path(file_path).stem
+        output_dir = BASE_DIR / "outputs" / video_name
+        os.makedirs(output_dir, exist_ok=True)
+        chunks_dir = output_dir / "chunks"
+        os.makedirs(chunks_dir, exist_ok=True)
 
         # Split video into chunks
         jobs[job_id]["current_step"] = "Splitting video into chunks..."
@@ -456,20 +568,31 @@ async def process_video_job(
 
         # Analyze each chunk
         analyses = []
+        logger.info(f"Starting analysis of {total_chunks} chunks for job {job_id}")
         for i, chunk in enumerate(chunks):
             chunk_progress = 20 + int((i / total_chunks) * 60)
             jobs[job_id]["progress"] = chunk_progress
-            jobs[job_id]["current_step"] = f"Analyzing chunk {i+1}/{total_chunks}..."
+            jobs[job_id]["current_step"] = f"Analyzing chunk {i + 1}/{total_chunks}..."
 
+            logger.info(
+                f"Processing chunk {i + 1}/{total_chunks} for job {job_id}: {chunk['path']}"
+            )
             try:
                 analysis = await analyzer.analyze_with_retry(
-                    chunk["path"],
-                    prompt,
-                    chunk
+                    chunk["path"], prompt, chunk
                 )
                 analyses.append(analysis)
+
+                # Save immediate chunk result
+                chunk_file = chunks_dir / f"chunk_{i + 1:03d}.md"
+                with open(chunk_file, "w", encoding="utf-8") as f:
+                    f.write(f"# Analysis for Chunk {i + 1}\n\n{analysis}")
+
+                logger.info(f"Successfully analyzed chunk {i + 1} for job {job_id}")
             except Exception as e:
-                jobs[job_id]["error"] = f"Failed on chunk {i+1}: {str(e)}"
+                error_msg = f"Failed on chunk {i + 1}: {str(e)}"
+                logger.error(f"Job {job_id} failed: {error_msg}")
+                jobs[job_id]["error"] = error_msg
                 jobs[job_id]["status"] = "failed"
                 return
 
@@ -477,9 +600,25 @@ async def process_video_job(
         jobs[job_id]["progress"] = 85
         jobs[job_id]["current_step"] = "Combining analyses..."
 
+        final_analysis = ""
         if len(analyses) > 1:
-            combine_prompt = prompt_manager.load_combine_prompt()
-            final_analysis = await analyzer.combine_analyses(analyses, combine_prompt)
+            try:
+                combine_prompt = prompt_manager.load_combine_prompt()
+                final_analysis = await analyzer.combine_analyses(
+                    analyses, combine_prompt
+                )
+            except Exception as e:
+                logger.warning(f"Failed to combine analyses: {e}")
+                # Fallback: Concatenate chunks so work is not lost
+                final_analysis = "# Comprehensive Analysis (Fallback)\n\n"
+                final_analysis += "> **Warning:** The AI model could not summarize the full video due to length limits or an error. Below are the individual chunk analyses.\n\n"
+                final_analysis += f"**Error details:** {str(e)}\n\n"
+                final_analysis += "\n\n---\n\n".join(
+                    [
+                        f"## Part {i + 1}\n{analysis}"
+                        for i, analysis in enumerate(analyses)
+                    ]
+                )
         else:
             final_analysis = analyses[0]
 
@@ -487,17 +626,15 @@ async def process_video_job(
         jobs[job_id]["progress"] = 95
         jobs[job_id]["current_step"] = "Saving results..."
 
-        video_name = Path(file_path).stem
-        output_dir = BASE_DIR / "outputs" / video_name
-        os.makedirs(output_dir, exist_ok=True)
-
         output_file = output_dir / f"{video_name}_analysis.md"
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(f"# Video Analysis: {video_name}\n\n")
             f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
             f.write(f"**Provider:** {provider}\n")
             f.write(f"**Model:** {model}\n")
-            f.write(f"**Video Type:** {VIDEO_TYPES.get(video_type, {}).get('name', video_type)}\n\n")
+            f.write(
+                f"**Video Type:** {VIDEO_TYPES.get(video_type, {}).get('name', video_type)}\n\n"
+            )
             f.write("---\n\n")
             f.write(final_analysis)
 
@@ -523,6 +660,7 @@ async def process_video_job(
 
 # ============== Startup/Shutdown ==============
 
+
 @app.on_event("startup")
 async def startup():
     """Initialize on startup."""
@@ -537,6 +675,7 @@ async def shutdown():
     """Cleanup on shutdown."""
     # Clean up any remaining temp files
     import shutil
+
     temp_dir = BASE_DIR / "temporary"
     if temp_dir.exists():
         for item in temp_dir.iterdir():
@@ -546,4 +685,5 @@ async def shutdown():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

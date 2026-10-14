@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   video-analyzer:
     build:
@@ -7,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: video-analyzer-web
     ports:
-      - "8000:8000"
+      - "4000:8000"
     environment:
       # Analyzer settings
       - ANALYZER_TYPE=${ANALYZER_TYPE:-gemini}
@@ -20,6 +18,11 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OPENROUTER_MODEL_NAME=${OPENROUTER_MODEL_NAME:-google/gemini-2.0-flash-exp:free}
 
+      # OpenAI settings
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:8001/v1}
+
       # Processing settings
       - CHUNK_DURATION_MINUTES=${CHUNK_DURATION_MINUTES:-10}
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
@@ -29,12 +32,22 @@ services:
       - OUTPUT_DIRECTORY=/app/outputs
       - TEMP_DIRECTORY=/app/temporary
       - PROMPTS_DIRECTORY=/app/prompts
+    tmpfs:
+      - /app/uploads:size=1G,mode=1777
+      - /app/temporary:size=1G,mode=1777
     volumes:
-      # Persist uploads and outputs
-      - video_uploads:/app/uploads
-      - video_outputs:/app/outputs
+      # Outputs: Persist to local disk
+      - type: bind
+        source: ./outputs
+        target: /app/outputs
+        
       # Mount custom prompts (optional)
-      # - ./custom_prompts:/app/prompts:ro
+      # - type: bind
+      #   source: ./custom_prompts
+      #   target: /app/prompts
+      #   read_only: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/config"]
@@ -42,9 +55,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  video_uploads:
-    driver: local
-  video_outputs:
-    driver: local

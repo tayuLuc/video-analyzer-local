@@ -2,6 +2,7 @@
 OpenRouter video analyzer using OpenAI-compatible API.
 Supports multiple AI models via OpenRouter.
 """
+
 import os
 import base64
 import asyncio
@@ -13,7 +14,7 @@ from app.analyzers.base import (
     AnalyzerError,
     RateLimitError,
     AuthenticationError,
-    VideoProcessingError
+    VideoProcessingError,
 )
 from app.config import config_manager
 
@@ -24,14 +25,13 @@ class OpenRouterAnalyzer(BaseAnalyzer):
     BASE_URL = "https://openrouter.ai/api/v1"
 
     # Default models known to support video
-    DEFAULT_MODELS = [
-        {"id": "google/gemini-2.0-flash-exp:free", "name": "Gemini 2.0 Flash (Free)", "description": "Free tier Gemini 2.0"},
-        {"id": "google/gemini-flash-1.5", "name": "Gemini 1.5 Flash", "description": "Fast Gemini model"},
-        {"id": "google/gemini-pro-1.5", "name": "Gemini 1.5 Pro", "description": "Advanced Gemini model"},
-        {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet", "description": "Anthropic's Claude model"},
-    ]
+    DEFAULT_MODELS = []
 
-    def __init__(self, model_name: str = "google/gemini-2.0-flash-exp:free", api_key: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str = "google/gemini-2.0-flash-exp:free",
+        api_key: Optional[str] = None,
+    ):
         super().__init__(model_name, api_key)
         self._http_client = None
 
@@ -50,7 +50,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
                     connect=30.0,
                     read=1800.0,  # 30 minutes for long video processing
                     write=300.0,
-                    pool=30.0
+                    pool=30.0,
                 )
             )
         return self._http_client
@@ -87,10 +87,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
         return mime_types.get(ext, "video/mp4")
 
     async def analyze_video(
-        self,
-        video_path: str,
-        prompt: str,
-        chunk_info: Optional[Dict] = None
+        self, video_path: str, prompt: str, chunk_info: Optional[Dict] = None
     ) -> str:
         """Analyze video using OpenRouter API."""
         try:
@@ -108,9 +105,11 @@ class OpenRouterAnalyzer(BaseAnalyzer):
                     formatted_prompt = prompt.format(
                         chunk_number=chunk_info.get("chunk_number", 1),
                         total_chunks=chunk_info.get("total_chunks", 1),
-                        start_time_minutes=round(chunk_info.get("start_time", 0) / 60, 1),
+                        start_time_minutes=round(
+                            chunk_info.get("start_time", 0) / 60, 1
+                        ),
                         end_time_minutes=round(chunk_info.get("end_time", 0) / 60, 1),
-                        duration_minutes=round(chunk_info.get("duration", 0) / 60, 1)
+                        duration_minutes=round(chunk_info.get("duration", 0) / 60, 1),
                     )
                 except KeyError:
                     pass
@@ -120,7 +119,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://video-analyzer.local",
-                "X-Title": "Video Analyzer"
+                "X-Title": "Video Analyzer",
             }
 
             payload = {
@@ -133,22 +132,17 @@ class OpenRouterAnalyzer(BaseAnalyzer):
                                 "type": "video_url",
                                 "video_url": {
                                     "url": f"data:{mime_type};base64,{video_base64}"
-                                }
+                                },
                             },
-                            {
-                                "type": "text",
-                                "text": formatted_prompt
-                            }
-                        ]
+                            {"type": "text", "text": formatted_prompt},
+                        ],
                     }
                 ],
-                "max_tokens": 16000
+                "max_tokens": 16000,
             }
 
             response = await client.post(
-                f"{self.BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload
+                f"{self.BASE_URL}/chat/completions", headers=headers, json=payload
             )
 
             if response.status_code == 429:
@@ -156,7 +150,9 @@ class OpenRouterAnalyzer(BaseAnalyzer):
             elif response.status_code == 401 or response.status_code == 403:
                 raise AuthenticationError("Invalid API key")
             elif response.status_code != 200:
-                raise AnalyzerError(f"API error: {response.status_code} - {response.text}")
+                raise AnalyzerError(
+                    f"API error: {response.status_code} - {response.text}"
+                )
 
             data = response.json()
 
@@ -187,10 +183,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
                 "Authorization": f"Bearer {api_key}",
             }
 
-            response = await client.get(
-                f"{self.BASE_URL}/models",
-                headers=headers
-            )
+            response = await client.get(f"{self.BASE_URL}/models", headers=headers)
 
             if response.status_code != 200:
                 return self.DEFAULT_MODELS
@@ -240,23 +233,31 @@ class OpenRouterAnalyzer(BaseAnalyzer):
 
                     # Convert to readable format (per 1M tokens)
                     try:
-                        prompt_cost = float(prompt_price) * 1000000 if prompt_price else 0
-                        completion_cost = float(completion_price) * 1000000 if completion_price else 0
-                        price_str = f"${prompt_cost:.2f}/${completion_cost:.2f} per 1M tokens"
+                        prompt_cost = (
+                            float(prompt_price) * 1000000 if prompt_price else 0
+                        )
+                        completion_cost = (
+                            float(completion_price) * 1000000 if completion_price else 0
+                        )
+                        price_str = (
+                            f"${prompt_cost:.2f}/${completion_cost:.2f} per 1M tokens"
+                        )
                         if prompt_cost == 0 and completion_cost == 0:
                             price_str = "Free"
                     except (ValueError, TypeError):
                         price_str = ""
 
-                    models.append({
-                        "id": model_id,
-                        "name": name,
-                        "description": model.get("description", ""),
-                        "context_length": model.get("context_length"),
-                        "input_modalities": input_modalities,
-                        "pricing": price_str,
-                        "supports_video": True,
-                    })
+                    models.append(
+                        {
+                            "id": model_id,
+                            "name": name,
+                            "description": model.get("description", ""),
+                            "context_length": model.get("context_length"),
+                            "input_modalities": input_modalities,
+                            "pricing": price_str,
+                            "supports_video": True,
+                        }
+                    )
 
             # Sort: free models first, then by name
             def sort_key(m):
@@ -268,7 +269,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
             return models if models else self.DEFAULT_MODELS
 
         except Exception as e:
-            return self.DEFAULT_MODELS
+            raise AnalyzerError(f"Failed to fetch models: {e}")
 
     def validate_api_key(self) -> bool:
         """Validate OpenRouter API key synchronously (deprecated, use async version)."""
@@ -290,10 +291,7 @@ class OpenRouterAnalyzer(BaseAnalyzer):
             }
 
             # Try to fetch models as validation
-            response = await client.get(
-                f"{self.BASE_URL}/models",
-                headers=headers
-            )
+            response = await client.get(f"{self.BASE_URL}/models", headers=headers)
 
             if response.status_code == 401 or response.status_code == 403:
                 return False
@@ -311,10 +309,12 @@ class OpenRouterAnalyzer(BaseAnalyzer):
             client = self._get_http_client()
 
             # Join all analyses
-            combined_text = "\n\n---\n\n".join([
-                f"=== Chunk {i+1} Analysis ===\n{analysis}"
-                for i, analysis in enumerate(analyses)
-            ])
+            combined_text = "\n\n---\n\n".join(
+                [
+                    f"=== Chunk {i + 1} Analysis ===\n{analysis}"
+                    for i, analysis in enumerate(analyses)
+                ]
+            )
 
             full_prompt = f"{combine_prompt}\n\n{combined_text}"
 
@@ -325,19 +325,12 @@ class OpenRouterAnalyzer(BaseAnalyzer):
 
             payload = {
                 "model": self.model_name,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": full_prompt
-                    }
-                ],
-                "max_tokens": 16000
+                "messages": [{"role": "user", "content": full_prompt}],
+                "max_tokens": 16000,
             }
 
             response = await client.post(
-                f"{self.BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload
+                f"{self.BASE_URL}/chat/completions", headers=headers, json=payload
             )
 
             if response.status_code == 429:
