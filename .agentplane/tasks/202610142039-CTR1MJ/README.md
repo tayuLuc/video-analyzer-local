@@ -1,0 +1,460 @@
+---
+id: "202610142039-CTR1MJ"
+title: "Инструментация разработки: коммит скаффолдинда agentplane в main"
+status: "DOING"
+priority: "med"
+owner: "CODER"
+revision: 7
+origin:
+  system: "manual"
+depends_on: []
+tags:
+  - "intake"
+task_kind: "docs"
+mutation_scope: "docs"
+verify:
+  - "agentplane doctor"
+  - "git diff --exit-code --cached .agentplane"
+plan_approval:
+  state: "approved"
+  updated_at: "2026-10-14T20:45:46.817Z"
+  updated_by: "USER"
+  note: "approved by operator chat command 'влей ПР и переходи к курированию разработки агентами'"
+verification:
+  state: "pending"
+  updated_at: null
+  updated_by: null
+  note: null
+  attempts: 0
+execution_route:
+  frozen: true
+  reason_codes:
+    - "agent_preferred_direct_compatible"
+  repository_mode: "direct"
+  requested_mode: "direct"
+  schema_version: 1
+  selected_mode: "direct"
+execution_contract:
+  authority:
+    allowed_capabilities:
+      - "git"
+      - "repository_write"
+    allowed_external_effects: []
+    allowed_repository_effects:
+      - "documentation"
+      - "repository_write"
+      - "tests"
+    allowed_resources: []
+    forbidden_external_effects:
+      - "network_read"
+      - "external_write"
+      - "credentials"
+      - "publish"
+      - "deploy"
+      - "destructive_git"
+    forbidden_repository_effects:
+      - "source_code"
+      - "public_api"
+      - "schema"
+      - "dependencies"
+      - "ci"
+      - "release_metadata"
+      - "security_boundary"
+    writable_roots:
+      - ".agentplane"
+  declaration:
+    external_effects: []
+    implementation_uncertainty: "bounded"
+    preferred_mode: "direct"
+    rationale:
+      - "explicit structured task intake"
+    repository_effects:
+      - "documentation"
+      - "repository_write"
+      - "tests"
+    requirements_uncertainty: "bounded"
+    reversibility: "reversible"
+    schema_version: 2
+    scope_roots:
+      - ".agentplane"
+  observed:
+    authority_violations: []
+    changed_components: []
+    changed_paths: []
+    external_effects: []
+    repository_effects: []
+    verification_results: []
+  reason_codes:
+    - "agent_preferred_direct_compatible"
+  repository_mode: "direct"
+  safety:
+    approval_effects: []
+    requires_user_approval: false
+    requires_worktree: false
+  schema_version: 1
+  selected_mode: "direct"
+  source: "agent_declared"
+  verification:
+    contract:
+      declared:
+        components:
+          - ".agentplane"
+        evidence_requirements:
+          - "repository_effect:documentation"
+          - "repository_effect:repository_write"
+          - "repository_effect:tests"
+          - "task_outcome"
+        external_effects: []
+        repository_effects:
+          - "documentation"
+          - "repository_write"
+          - "tests"
+        risk:
+          implementation_uncertainty: "bounded"
+          requirements_uncertainty: "bounded"
+          reversibility: "reversible"
+      digest: "sha256:f8bf700d0481c58b5da066d53ce6f030ef74dff6b9e27c728f5e850f5812fa3f"
+      escalation_reasons: []
+      execution_groups:
+        - "docs-schema"
+        - "core"
+        - "cli"
+      observed:
+        changed_components: []
+        changed_files: []
+        external_effects: []
+        repository_effects: []
+      phase: "task"
+      policy_floor:
+        monotonic_strengthening: true
+        pr_full_regression: true
+        unknown_or_central_full_regression: true
+      requires_full_regression: false
+      requires_real_e2e: false
+      schema_version: 2
+      selected_checks:
+        - "affected_unit_integration"
+        - "critical_paths"
+        - "docs_contract"
+        - "task_outcome"
+      selector:
+        bucket: null
+        buckets: []
+        execution_mode: "semantic"
+        kind: "semantic"
+        lint_targets: []
+        reason: "execution_declaration"
+        run_cli_docs_check: false
+        selected_test_files: []
+        vitest_pool: "forks"
+      source: "execution_contract"
+    required_evidence:
+      - "repository_effect:documentation"
+      - "repository_effect:repository_write"
+      - "repository_effect:tests"
+      - "task_outcome"
+commit: null
+comments: []
+events: []
+doc_version: 3
+doc_updated_at: "2026-10-14T20:39:25.063Z"
+doc_updated_by: "CODER"
+description: "agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id)."
+sections:
+  Summary: |-
+    Инструментация разработки: коммит скаффолдинда agentplane в main
+
+    agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id).
+  Scope: |-
+    - In scope: agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id).
+    - Out of scope: unrelated refactors not required for "Инструментация разработки: коммит скаффолдинда agentplane в main".
+  Plan: "1. Execute approved WorkItem wi-1."
+  Verify Steps: |-
+    PLANNER fallback scaffold for "Инструментация разработки: коммит скаффолдинда agentplane в main". Replace with task-specific acceptance checks when PLANNER context is available.
+
+    1. Review the requested outcome for "Инструментация разработки: коммит скаффолдинда agentplane в main". Expected: the visible result matches ## Summary and stays inside approved scope.
+    2. Run the most relevant validation step for this task. Expected: it succeeds without unexpected regressions in touched behavior.
+    3. Compare the final result against ## Scope and record any residual follow-up in ## Findings. Expected: open edges are explicit rather than implicit.
+  Verification: |-
+    <!-- BEGIN VERIFICATION RESULTS -->
+    <!-- END VERIFICATION RESULTS -->
+  Rollback Plan: |-
+    - Revert task-related commit(s).
+    - Re-run required checks to confirm rollback safety.
+  Findings: ""
+extensions:
+  task_execution_context:
+    base_ref: "main"
+    base_sha: "35a780b4f3204fb767bb57fadae75716cea10a9a"
+    repository_identity: "sha256:389babdfb41a61b21aca5f26ed8a7b21b0ba9490e63daac31d781fd6b35cdc10"
+    schema_version: 1
+    source: "creation_checkout"
+  task_kernel:
+    aggregate:
+      authority_lineage:
+        -
+          approval_mode: "manual_operator"
+          authority:
+            capabilities:
+              - "git"
+              - "repository_write"
+            completion_requirements:
+              - "work_item_validation"
+              - "final_validation"
+            digest: "sha256:9f1e4d1f480eed7d847797b88adf21afde131e68c10568b96c54e3f1034f94d0"
+            expires_at: null
+            external_effects: []
+            plan_digest: "sha256:1f6e0cac1431cfbb828d4903223842fb3aba2cd00c0aa86d0a2b2d0b95807d85"
+            plan_revision: 1
+            policy_digests:
+              - "sha256:6b01ad736a8d24a88c24fa5a1af981c7b2bda5da0c9c0ce322eb3918ff4f9926"
+            provenance:
+              actor_id: "USER"
+              evidence_digest: "sha256:6d731e3495e13b041f9813494774148498759f212a8ee7cd4c2a93e9c94289b0"
+              kind: "USER"
+              parent_authority_digest: null
+            repository_effects:
+              - "documentation"
+              - "repository_write"
+              - "tests"
+            repository_fingerprint: "sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+            repository_identity: "sha256:389babdfb41a61b21aca5f26ed8a7b21b0ba9490e63daac31d781fd6b35cdc10"
+            resources: []
+            risk:
+              implementation: "bounded"
+              requirements: "bounded"
+              reversibility: "reversible"
+            scope_roots:
+              - ".agentplane"
+            task_id: "202610142039-CTR1MJ"
+            validation_requirements:
+              - "affected_unit_integration"
+              - "critical_paths"
+              - "docs_contract"
+              - "task_outcome"
+            work_item_id: null
+          observation: null
+      controller_transfer: null
+      current_plan:
+        approval_actor_id: "USER"
+        approval_evidence_digest: "sha256:6d731e3495e13b041f9813494774148498759f212a8ee7cd4c2a93e9c94289b0"
+        digest: "sha256:1f6e0cac1431cfbb828d4903223842fb3aba2cd00c0aa86d0a2b2d0b95807d85"
+        revision: 1
+        state: "APPROVED"
+        work_items:
+          -
+            contract_digest: "sha256:31f04f140b7f389273d7c22204870b2f70545599fde0f5f1b3c5673c5b562232"
+            depends_on: []
+            execution_requirements:
+              capabilities:
+                - "git"
+              external_effects: []
+              repository_effects:
+                - "documentation"
+              resources: []
+              scope_roots:
+                - ".agentplane"
+            expected_outputs:
+              - "commit:agentplane-scaffolding"
+            id: "wi-1"
+            optional: false
+            required_inputs: []
+      effects: []
+      final_validation: null
+      id: "202610142039-CTR1MJ"
+      intent_digest: "sha256:da18c69838255b215ad9a4f13a302c992db984a714836af866620ab0b9a0e1cc"
+      migration_receipts: []
+      mutation_receipts:
+        capture:202610142039-CTR1MJ:
+          after_revision: 1
+          aggregate_digest: "sha256:ea2462742f1d37b0fc3dcc1fde8fe6cfd849d46e58f71155cc08434e750222f0"
+          before_revision: 0
+          command_digest: "sha256:c1f0146d2550cfb04d64c1103d877aee33e3ef30ff20ca592da779485408de49"
+          effect_ids: []
+          event_digests:
+            - "sha256:87f7f64f260f7ab056bc99b789f8d9ef23cb36edf8c4bbfba46812be2d0082a6"
+          mutation_id: "capture:202610142039-CTR1MJ"
+        kernel_work_item_claim_required:sha256:3a39cffe8ba122eb52e51962a3ed2accfa07c766116b126f61911f83645e8f7b:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:
+          after_revision: 5
+          aggregate_digest: "sha256:1ab0d32d36f65854f45ab9e4f2fb28811d44679e5a0de3f9d5053e0a0bbffc13"
+          before_revision: 4
+          command_digest: "sha256:29e08c1605dc8ffecb5e8b0afcc4b61e67b763a382c920a518c3e0adbeabc3cd"
+          effect_ids: []
+          event_digests:
+            - "sha256:ce09315f02b69d63a8f051d23c63480c8854652599c27b0a4a424a601e6bcb8c"
+          mutation_id: "kernel_work_item_claim_required:sha256:3a39cffe8ba122eb52e51962a3ed2accfa07c766116b126f61911f83645e8f7b:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        kernel_work_item_execution_required:sha256:1c41acf099affadad7d14e6de0fb9af22a768783747069e0890f7407344166bb:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:
+          after_revision: 6
+          aggregate_digest: "sha256:6feacbb88354a080fd164b26810cd8d354f41c8a36e39568c648bc5d5b6c7d79"
+          before_revision: 5
+          command_digest: "sha256:5fd45bb12d63f62d774e18cb527d44c99595f7cfe8089978c78e05c32dc2c264"
+          effect_ids: []
+          event_digests:
+            - "sha256:866269b69d31fc010c2a4d112a1bc3a9e2234f910e176b5af42d99bc2d2ab7ba"
+          mutation_id: "kernel_work_item_execution_required:sha256:1c41acf099affadad7d14e6de0fb9af22a768783747069e0890f7407344166bb:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        kernel_work_item_materialization_required:sha256:99780d5b9a346492be9145a64b6cf9c12d7e41530e478335dab740d3dca1a97a:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:
+          after_revision: 4
+          aggregate_digest: "sha256:1eb8d6db38e74ef95b35833131e1e00f4ff1d4f7da11e379cdb9c52b545683f6"
+          before_revision: 3
+          command_digest: "sha256:3ac985e20e01bb96457aeed37300d21875ccc7a549e01f92b8cc3d6f8841ac9d"
+          effect_ids: []
+          event_digests:
+            - "sha256:a54f87d7964c88d38a7fde842328b09cb94414e4c7cf00d4d7967dfb0f9af7bb"
+          mutation_id: "kernel_work_item_materialization_required:sha256:99780d5b9a346492be9145a64b6cf9c12d7e41530e478335dab740d3dca1a97a:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        result:sha256:9f95cce878b684665557e1424d0f05a7c74cfbbbaba045173ce58f4f71507f49:
+          after_revision: 2
+          aggregate_digest: "sha256:702f5fd4721e22d45f02dbe64e1452bcb424e1896ec14f711a951c6bdccae6ed"
+          before_revision: 1
+          command_digest: "sha256:fd29a39cfae953a8a5b3bd4393663645883df58f68eb995970f0bf7bd35ce9db"
+          effect_ids: []
+          event_digests:
+            - "sha256:97ec6d36d7b0bf62a2602af592a68f68593ed2864dc74c77521c605119454d4d"
+          mutation_id: "result:sha256:9f95cce878b684665557e1424d0f05a7c74cfbbbaba045173ce58f4f71507f49"
+        sha256:4a92caf45ec3ddc167bb34e2465c932d12c7f959731ad63168eff8d0960c92fa:
+          after_revision: 3
+          aggregate_digest: "sha256:adf0956eccb386f76597f7fad786613c36ed6fe328c2f2857aff2dd9e2788676"
+          before_revision: 2
+          command_digest: "sha256:6b0800b79b26a275f514e385070789af1405e0600d0228154fba5cfae14d08d4"
+          effect_ids: []
+          event_digests:
+            - "sha256:997704437899dc3464110395e2f289d0d95ba6724c9d11816310a0ec6e12dfec"
+          mutation_id: "sha256:4a92caf45ec3ddc167bb34e2465c932d12c7f959731ad63168eff8d0960c92fa"
+      plan_history: []
+      revision: 6
+      schema_version: 1
+      state: "ACTIVE"
+      work_items:
+        wi-1:
+          attempt: 1
+          claim_id: "sha256:3d9448ace5a5092434df869f4435c42b59829a1f14eb10b3d413f5d910dea2d4"
+          definition:
+            contract_digest: "sha256:31f04f140b7f389273d7c22204870b2f70545599fde0f5f1b3c5673c5b562232"
+            depends_on: []
+            execution_requirements:
+              capabilities:
+                - "git"
+              external_effects: []
+              repository_effects:
+                - "documentation"
+              resources: []
+              scope_roots:
+                - ".agentplane"
+            expected_outputs:
+              - "commit:agentplane-scaffolding"
+            id: "wi-1"
+            optional: false
+            required_inputs: []
+          output_manifests: []
+          result_digest: null
+          revision: 3
+          state: "EXECUTING"
+          validation: null
+    digest: "sha256:694fd2c0ccda542d193697c41e64a49db785b0801347a3245c5d837166fa09df"
+    documents:
+      contracts:
+        sha256:31f04f140b7f389273d7c22204870b2f70545599fde0f5f1b3c5673c5b562232:
+          acceptance_criteria:
+            - "git log -1 --format=%s содержит 202610142039-CTR1MJ"
+            - "git status --porcelain пуст"
+          objective: "Закоммитить скаффолдинг agentplane (.agentplane/) в main с привязкой к задаче, довести git status до чистого."
+          role: "EXECUTOR"
+          verification_commands:
+            - "git diff --exit-code --cached .agentplane"
+            - "agentplane doctor"
+      intent:
+        context: "agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id)."
+        objective: "Инструментация разработки: коммит скаффолдинда agentplane в main"
+    events:
+      -
+        command_digest: "sha256:c1f0146d2550cfb04d64c1103d877aee33e3ef30ff20ca592da779485408de49"
+        id: "capture:202610142039-CTR1MJ:intent_captured"
+        kind: "intent_captured"
+        mutation_id: "capture:202610142039-CTR1MJ"
+        occurred_at: "2026-10-14T20:39:25.034Z"
+        payload_digest: "sha256:dd4b9a1b01bc6ba26cb38ee8708732b4697168f9f1efd11ab69e8c59d1d7e5e5"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 1
+      -
+        command_digest: "sha256:fd29a39cfae953a8a5b3bd4393663645883df58f68eb995970f0bf7bd35ce9db"
+        id: "result:sha256:9f95cce878b684665557e1424d0f05a7c74cfbbbaba045173ce58f4f71507f49:plan_proposed"
+        kind: "plan_proposed"
+        mutation_id: "result:sha256:9f95cce878b684665557e1424d0f05a7c74cfbbbaba045173ce58f4f71507f49"
+        occurred_at: "2026-10-14T20:39:44.994Z"
+        payload_digest: "sha256:eb072bc87a56778129f2249262798ac4529cbb4dc23135c33a7bf51f80d80ac9"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 2
+      -
+        command_digest: "sha256:6b0800b79b26a275f514e385070789af1405e0600d0228154fba5cfae14d08d4"
+        id: "sha256:4a92caf45ec3ddc167bb34e2465c932d12c7f959731ad63168eff8d0960c92fa:plan_approved"
+        kind: "plan_approved"
+        mutation_id: "sha256:4a92caf45ec3ddc167bb34e2465c932d12c7f959731ad63168eff8d0960c92fa"
+        occurred_at: "2026-10-14T20:45:46.466Z"
+        payload_digest: "sha256:8b894fd1d9eede9fa4fff43cf8cf98a83ed8217946a44dad0bb15931ffd5d322"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 3
+      -
+        command_digest: "sha256:3ac985e20e01bb96457aeed37300d21875ccc7a549e01f92b8cc3d6f8841ac9d"
+        id: "kernel_work_item_materialization_required:sha256:99780d5b9a346492be9145a64b6cf9c12d7e41530e478335dab740d3dca1a97a:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:work_items_materialized"
+        kind: "work_items_materialized"
+        mutation_id: "kernel_work_item_materialization_required:sha256:99780d5b9a346492be9145a64b6cf9c12d7e41530e478335dab740d3dca1a97a:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        occurred_at: "2026-10-14T20:45:54.455Z"
+        payload_digest: "sha256:65712c2a1da8380d008f22d3ef7a3bcd55819e440c88d04b41b962e540b4341f"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 4
+      -
+        command_digest: "sha256:29e08c1605dc8ffecb5e8b0afcc4b61e67b763a382c920a518c3e0adbeabc3cd"
+        id: "kernel_work_item_claim_required:sha256:3a39cffe8ba122eb52e51962a3ed2accfa07c766116b126f61911f83645e8f7b:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:work_item_transitioned"
+        kind: "work_item_transitioned"
+        mutation_id: "kernel_work_item_claim_required:sha256:3a39cffe8ba122eb52e51962a3ed2accfa07c766116b126f61911f83645e8f7b:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        occurred_at: "2026-10-14T20:45:55.029Z"
+        payload_digest: "sha256:bc18f549bd285e143a017087b2bb0a7ed067d6adc7d081a7e0aaa4082dfc205d"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 5
+      -
+        command_digest: "sha256:5fd45bb12d63f62d774e18cb527d44c99595f7cfe8089978c78e05c32dc2c264"
+        id: "kernel_work_item_execution_required:sha256:1c41acf099affadad7d14e6de0fb9af22a768783747069e0890f7407344166bb:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088:work_item_transitioned"
+        kind: "work_item_transitioned"
+        mutation_id: "kernel_work_item_execution_required:sha256:1c41acf099affadad7d14e6de0fb9af22a768783747069e0890f7407344166bb:sha256:6420d80e3ee52a6a4d5481a9b10d06642700fa1ecd9dbb8acc49d0c37c884088"
+        occurred_at: "2026-10-14T20:45:55.438Z"
+        payload_digest: "sha256:132bb5e03b9f4837e802aa9da83aa6998677794bad2eb82007248a052e674692"
+        task_id: "202610142039-CTR1MJ"
+        task_revision: 6
+    kind: "canonical_task"
+    repository_identity: "sha256:389babdfb41a61b21aca5f26ed8a7b21b0ba9490e63daac31d781fd6b35cdc10"
+    schema_version: 1
+id_source: "generated"
+---
+## Summary
+
+Инструментация разработки: коммит скаффолдинда agentplane в main
+
+agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id).
+
+## Scope
+
+- In scope: agentplane init оставил .agentplane/ в индексе без коммита: хуки не пропускают защищённые пути вне активного task. Коммит скаффолдинга привязывается к id этой задачи (subject с task id).
+- Out of scope: unrelated refactors not required for "Инструментация разработки: коммит скаффолдинда agentplane в main".
+
+## Plan
+
+1. Execute approved WorkItem wi-1.
+
+## Verify Steps
+
+PLANNER fallback scaffold for "Инструментация разработки: коммит скаффолдинда agentplane в main". Replace with task-specific acceptance checks when PLANNER context is available.
+
+1. Review the requested outcome for "Инструментация разработки: коммит скаффолдинда agentplane в main". Expected: the visible result matches ## Summary and stays inside approved scope.
+2. Run the most relevant validation step for this task. Expected: it succeeds without unexpected regressions in touched behavior.
+3. Compare the final result against ## Scope and record any residual follow-up in ## Findings. Expected: open edges are explicit rather than implicit.
+
+## Verification
+
+<!-- BEGIN VERIFICATION RESULTS -->
+<!-- END VERIFICATION RESULTS -->
+
+## Rollback Plan
+
+- Revert task-related commit(s).
+- Re-run required checks to confirm rollback safety.
+
+## Findings
