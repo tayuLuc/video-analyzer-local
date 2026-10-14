@@ -9,20 +9,19 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Analyzer settings
-      - ANALYZER_TYPE=${ANALYZER_TYPE:-gemini}
-
-      # Gemini settings (optional - can be set via web interface)
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL_NAME=${GEMINI_MODEL_NAME:-gemini-2.5-flash}
-
-      # OpenRouter settings (optional - can be set via web interface)
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL_NAME=${OPENROUTER_MODEL_NAME:-google/gemini-2.0-flash-exp:free}
+      # Endpoint: any OpenAI-compatible /v1 server.
+      # LiteLLM :4000/v1, vLLM :8000/v1, llama.cpp :8080/v1, Ollama :11434/v1
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:4000/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-}
 
       # Processing settings
       - CHUNK_DURATION_MINUTES=${CHUNK_DURATION_MINUTES:-10}
-      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-0}
+      - CHUNK_SPLIT_MODE=${CHUNK_SPLIT_MODE:-fixed}
+      - SILENCE_WINDOW_SECONDS=${SILENCE_WINDOW_SECONDS:-120}
+      - SILENCE_MIN_DURATION_SECONDS=${SILENCE_MIN_DURATION_SECONDS:-3.0}
+      - SILENCE_NOISE_DB=${SILENCE_NOISE_DB:--35.0}
 
       # Directories (inside container)
       - UPLOAD_DIRECTORY=/app/uploads

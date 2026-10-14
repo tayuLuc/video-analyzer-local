@@ -3,14 +3,9 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 jinja2>=3.1.2
+aiofiles>=23.2.0
 
-# Google Cloud / Gemini
-google-cloud-aiplatform>=1.38.0
-google-auth>=2.23.0
-google-auth-oauthlib>=1.1.0
-google-generativeai>=0.3.0
-
-# OpenRouter / OpenAI SDK
+# OpenAI-compatible endpoint (LiteLLM, vLLM, llama.cpp, Ollama)
 openai>=1.0.0
 httpx>=0.25.0
 
@@ -19,6 +14,4 @@ ffmpeg-python>=0.2.0
 
 # Utilities
 python-dotenv>=1.0.0
-tqdm>=4.64.0
-aiofiles>=23.2.0
 pydantic>=2.5.0

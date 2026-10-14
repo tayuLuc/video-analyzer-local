@@ -8,7 +8,6 @@ const LAST_RESULT_STORAGE_KEY = 'video-analyzer:last-result:v1';
 // ============== State ==============
 
 const state = {
-    provider: 'gemini',
     model: '',
     videoFile: null,
     uploadedFileInfo: null,
@@ -33,21 +32,20 @@ const state = {
 // ============== DOM Elements ==============
 
 const elements = {
+    // Endpoint
+    endpointUrl: document.getElementById('endpoint-url'),
+    endpointStatus: document.getElementById('endpoint-status'),
+
     // Provider
-    providerRadios: document.querySelectorAll('input[name="provider"]'),
-    geminiStatus: document.getElementById('gemini-status'),
-    openrouterStatus: document.getElementById('openrouter-status'),
 
     // API Key
     apiKeySection: document.getElementById('api-key-section'),
     apiKeyInput: document.getElementById('api-key-input'),
     saveApiKeyBtn: document.getElementById('save-api-key-btn'),
-    providerName: document.getElementById('provider-name'),
     apiKeyHint: document.getElementById('api-key-hint'),
 
     // Reset Key
     resetKeySection: document.getElementById('reset-key-section'),
-    configuredProviderName: document.getElementById('configured-provider-name'),
     changeKeyBtn: document.getElementById('change-key-btn'),
     resetKeyBtn: document.getElementById('reset-key-btn'),
 
@@ -123,7 +121,8 @@ async function fetchConfig() {
     try {
         const response = await fetch('/api/config');
         state.config = await response.json();
-        updateProviderStatus();
+        if (elements.endpointUrl) elements.endpointUrl.textContent = state.config.base_url;
+        updateEndpointStatus();
         updateUploadLimitHint();
     } catch (error) {
         console.error('Failed to fetch config:', error);
@@ -159,11 +158,11 @@ async function fetchVideoTypes() {
     }
 }
 
-async function fetchModels(provider) {
+async function fetchModels() {
     try {
         elements.modelSelect.innerHTML = '<option value="">Loading video-capable models...</option>';
 
-        const response = await fetch(`/api/models/${provider}`);
+        const response = await fetch('/api/models');
         const data = await response.json();
 
         if (data.models && data.models.length > 0) {
@@ -177,12 +176,7 @@ async function fetchModels(provider) {
                     label += ` (${contextK}K ctx)`;
                 }
 
-                // Add pricing for OpenRouter models
-                if (model.pricing && typeof model.pricing === 'string') {
-                    label += ` - ${model.pricing}`;
-                }
-
-                // Add input token limit for Gemini
+                // LiteLLM reports input limits per model
                 if (model.input_token_limit) {
                     const limitM = (model.input_token_limit / 1000000).toFixed(1);
                     if (limitM >= 1) {
@@ -194,9 +188,7 @@ async function fetchModels(provider) {
             }).join('');
 
             // Select default model
-            const defaultModel = provider === 'gemini'
-                ? state.config?.default_gemini_model
-                : state.config?.default_openrouter_model;
+            const defaultModel = state.config?.default_model;
 
             if (defaultModel && data.models.some(m => m.id === defaultModel)) {
                 elements.modelSelect.value = defaultModel;
@@ -311,19 +303,10 @@ async function generatePromptTemplate(target) {
         return;
     }
 
-    const isConfigured = state.provider === 'gemini'
-        ? state.config?.gemini_configured
-        : state.config?.openrouter_configured;
-    if (!isConfigured) {
-        showToast('Сначала настройте API key для выбранного провайдера', 'error');
-        return;
-    }
-
     try {
         setButtonLoading(triggerButton, true);
 
         const payload = {
-            provider: state.provider,
             model: state.model,
             target,
             description,
@@ -360,7 +343,7 @@ async function generatePromptTemplate(target) {
     }
 }
 
-async function setApiKey(provider, apiKey) {
+async function setApiKey(apiKey) {
     try {
         const btn = elements.saveApiKeyBtn;
         btn.querySelector('.btn-text').style.display = 'none';
@@ -370,22 +353,15 @@ async function setApiKey(provider, apiKey) {
         const response = await fetch('/api/set-api-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider, api_key: apiKey })
+            body: JSON.stringify({ api_key: apiKey })
         });
 
         const data = await response.json();
 
         if (data.success) {
-            showToast(`${provider} API key saved successfully`, 'success');
-
-            // Update config
-            if (provider === 'gemini') {
-                state.config.gemini_configured = true;
-            } else {
-                state.config.openrouter_configured = true;
-            }
-
-            updateProviderStatus();
+            showToast('API key saved', 'success');
+            state.config.configured = true;
+            updateEndpointStatus();
             elements.apiKeyInput.value = '';
 
             // Refresh models
@@ -528,7 +504,6 @@ async function startAnalysis() {
         formData.append('file_id', state.uploadedFileInfo.file_id);
         formData.append('filename', state.uploadedFileInfo.filename);
         formData.append('video_type', state.videoType === 'custom' ? 'general' : state.videoType);
-        formData.append('provider', state.provider);
         formData.append('model', state.model);
         formData.append('with_keyframes', elements.withKeyframes.checked);
         formData.append('with_clips', elements.withClips.checked);
@@ -611,76 +586,45 @@ async function pollJobStatus() {
 
 // ============== UI Functions ==============
 
-function updateProviderStatus() {
+function updateEndpointStatus() {
     if (!state.config) return;
 
-    const providerDisplayName = state.provider === 'gemini' ? 'Gemini' : 'OpenRouter';
+    const hasModels = elements.modelSelect.value !== '';
+    const badge = elements.endpointStatus;
 
-    // Update status badges
-    if (state.config.gemini_configured) {
-        elements.geminiStatus.textContent = 'Configured';
-        elements.geminiStatus.classList.add('configured');
+    if (hasModels) {
+        badge.textContent = 'Ready';
+        badge.classList.add('configured');
+    } else if (state.config.configured) {
+        badge.textContent = 'Key set';
+        badge.classList.add('configured');
     } else {
-        elements.geminiStatus.textContent = 'Not configured';
-        elements.geminiStatus.classList.remove('configured');
+        badge.textContent = 'No models';
+        badge.classList.remove('configured');
     }
 
-    if (state.config.openrouter_configured) {
-        elements.openrouterStatus.textContent = 'Configured';
-        elements.openrouterStatus.classList.add('configured');
-    } else {
-        elements.openrouterStatus.textContent = 'Not configured';
-        elements.openrouterStatus.classList.remove('configured');
-    }
-
-    // Check if current provider is configured
-    const isConfigured = state.provider === 'gemini'
-        ? state.config.gemini_configured
-        : state.config.openrouter_configured;
-
-    if (!isConfigured) {
-        // Show API key input section
-        elements.apiKeySection.style.display = 'block';
-        elements.resetKeySection.style.display = 'none';
-        elements.providerName.textContent = providerDisplayName;
-
-        if (state.provider === 'gemini') {
-            elements.apiKeyHint.innerHTML = 'Get your Gemini API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>';
-        } else {
-            elements.apiKeyHint.innerHTML = 'Get your OpenRouter API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>';
-        }
-    } else {
-        // Show reset key section
-        elements.apiKeySection.style.display = 'none';
-        elements.resetKeySection.style.display = 'block';
-        elements.configuredProviderName.textContent = providerDisplayName;
-    }
+    // Offer the key field only when the endpoint gave us nothing to work with.
+    elements.apiKeySection.style.display = hasModels ? 'none' : 'block';
+    elements.resetKeySection.style.display = state.config.configured ? 'block' : 'none';
 
     updateAnalyzeButton();
 }
 
-async function resetApiKey(provider) {
+async function resetApiKey() {
     try {
         const response = await fetch('/api/reset-api-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider })
+            body: '{}'
         });
 
         const data = await response.json();
 
         if (data.success) {
-            showToast(`${provider} API key has been reset`, 'success');
-
-            // Update config
-            if (provider === 'gemini') {
-                state.config.gemini_configured = false;
-            } else {
-                state.config.openrouter_configured = false;
-            }
-
-            updateProviderStatus();
-            fetchModels(state.provider);
+            showToast('API key has been reset', 'success');
+            state.config.configured = false;
+            updateEndpointStatus();
+            fetchModels();
         } else {
             showToast(data.error || 'Failed to reset API key', 'error');
         }
@@ -959,14 +903,10 @@ function showError(error) {
 
 function updateAnalyzeButton() {
     const hasVideo = state.uploadedFileInfo !== null;
-    const hasProvider = state.provider !== '';
     const hasModel = state.model !== '';
     const hasVideoType = state.videoType !== '';
-    const isConfigured = state.provider === 'gemini'
-        ? state.config?.gemini_configured
-        : state.config?.openrouter_configured;
 
-    elements.analyzeBtn.disabled = !(hasVideo && hasProvider && hasModel && hasVideoType && isConfigured) || state.uploadInProgress || state.analysisStarting;
+    elements.analyzeBtn.disabled = !(hasVideo && hasModel && hasVideoType) || state.uploadInProgress || state.analysisStarting;
 }
 
 function setButtonLoading(button, isLoading) {
@@ -1121,15 +1061,6 @@ function formatFileSize(bytes) {
 
 // ============== Event Listeners ==============
 
-// Provider selection
-elements.providerRadios.forEach(radio => {
-    radio.addEventListener('change', (e) => {
-        state.provider = e.target.value;
-        updateProviderStatus();
-        fetchModels(state.provider);
-    });
-});
-
 // Model selection
 elements.modelSelect.addEventListener('change', (e) => {
     state.model = e.target.value;
@@ -1140,7 +1071,7 @@ elements.modelSelect.addEventListener('change', (e) => {
 elements.saveApiKeyBtn.addEventListener('click', () => {
     const apiKey = elements.apiKeyInput.value.trim();
     if (apiKey) {
-        setApiKey(state.provider, apiKey);
+        setApiKey(apiKey);
     } else {
         showToast('Please enter an API key', 'error');
     }
@@ -1153,8 +1084,8 @@ elements.changeKeyBtn.addEventListener('click', () => {
 
 // Reset API Key
 elements.resetKeyBtn.addEventListener('click', () => {
-    if (confirm(`Are you sure you want to reset the ${state.provider === 'gemini' ? 'Gemini' : 'OpenRouter'} API key?`)) {
-        resetApiKey(state.provider);
+    if (confirm('Are you sure you want to reset the API key?')) {
+        resetApiKey();
     }
 });
 
@@ -1353,7 +1284,7 @@ async function init() {
     restoreLastResult();
     await fetchConfig();
     await fetchVideoTypes();
-    fetchModels(state.provider);
+    fetchModels();
 }
 
 // Start app
